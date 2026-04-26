@@ -107,6 +107,17 @@ export const productsAPI = {
   }
 };
 
+export const recommendationsAPI = {
+  get: async (payload = {}) => {
+    const response = await fetch(`${API_BASE_URL}/recommendations`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return handleResponse(response);
+  }
+};
+
 export const categoriesAPI = {
   getAll: async () => {
     const response = await fetch(`${API_BASE_URL}/categories`);

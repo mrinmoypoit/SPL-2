@@ -83,22 +83,6 @@ function ProfileDropdown() {
             <span>Settings</span>
           </button>
 
-          {user?.role === 'admin' && (
-            <>
-              <div className="dropdown-divider"></div>
-              <button
-                className="dropdown-item admin-item"
-                onClick={() => {
-                  setIsOpen(false)
-                  navigate('/admin/data-entry')
-                }}
-              >
-                <i className="fas fa-cogs"></i>
-                <span>Admin Panel</span>
-              </button>
-            </>
-          )}
-
           <div className="dropdown-divider"></div>
 
           <button className="dropdown-item logout-item" onClick={handleLogout}>

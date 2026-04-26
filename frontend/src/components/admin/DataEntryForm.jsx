@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './DataEntryForm.css';
+import { getValidAuthToken, clearAuthTokens, isUnauthorizedStatus } from '../../utils/admin/authToken';
 
 const DataEntryForm = ({ product, onSaved, onCancel }) => {
     const [formData, setFormData] = useState({
@@ -17,8 +18,7 @@ const DataEntryForm = ({ product, onSaved, onCancel }) => {
     const [saveAsDraft, setSaveAsDraft] = useState(false);
     const [selectedCategory, setSelectedCategory] = useState(null);
 
-    const token = localStorage.getItem('adminToken');
-    const apiBaseUrl = 'http://localhost:3000/api';
+    const apiBaseUrl = import.meta.env.VITE_API_URL || '/api';
 
     const PRODUCT_CATEGORIES = {
         savings_accounts: {
@@ -86,12 +86,24 @@ const DataEntryForm = ({ product, onSaved, onCancel }) => {
     }, [product]);
 
     const fetchCompanies = async () => {
+        const token = getValidAuthToken();
+        if (!token) {
+            return;
+        }
+
         try {
             const response = await fetch(`${apiBaseUrl}/products`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
             });
+
+            if (isUnauthorizedStatus(response.status)) {
+                clearAuthTokens();
+                window.location.href = '/';
+                return;
+            }
+
             if (response.ok) {
                 setCompanies([]);
             }
@@ -101,12 +113,24 @@ const DataEntryForm = ({ product, onSaved, onCancel }) => {
     };
 
     const fetchCategories = async () => {
+        const token = getValidAuthToken();
+        if (!token) {
+            return;
+        }
+
         try {
             const response = await fetch(`${apiBaseUrl}/categories`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
             });
+
+            if (isUnauthorizedStatus(response.status)) {
+                clearAuthTokens();
+                window.location.href = '/';
+                return;
+            }
+
             if (response.ok) {
                 const data = await response.json();
                 setCategories(data.categories || []);
@@ -148,6 +172,13 @@ const DataEntryForm = ({ product, onSaved, onCancel }) => {
         setLoading(true);
         setError(null);
 
+        const token = getValidAuthToken();
+        if (!token) {
+            setError('Session expired. Please log in again.');
+            setLoading(false);
+            return;
+        }
+
         try {
             const url = product 
                 ? `${apiBaseUrl}/admin/products/${product.product_id || product.productId}`
@@ -166,6 +197,13 @@ const DataEntryForm = ({ product, onSaved, onCancel }) => {
                     saveAsDraft
                 })
             });
+
+            if (isUnauthorizedStatus(response.status)) {
+                clearAuthTokens();
+                setError('Session expired. Please log in again.');
+                window.location.href = '/';
+                return;
+            }
 
             if (response.ok) {
                 const result = await response.json();

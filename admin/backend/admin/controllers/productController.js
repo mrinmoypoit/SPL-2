@@ -1,6 +1,24 @@
 const { pool } = require('../../../../backend/config/database');
 const { logDataChange } = require('../services/loggingService');
 
+const normalizeAttributes = (attributes = []) => {
+    if (!Array.isArray(attributes)) {
+        return [];
+    }
+
+    return attributes
+        .map((attr) => ({
+            name: String(attr?.name || attr?.attribute_name || '').trim() || null,
+            value: attr?.value ?? attr?.attribute_value ?? null,
+            type: attr?.type || attr?.attribute_type || 'text'
+        }))
+        .map((attr) => ({
+            ...attr,
+            value: typeof attr.value === 'string' ? attr.value.trim() : attr.value
+        }))
+        .filter((attr) => attr.name && attr.value !== null && attr.value !== undefined && attr.value !== '');
+};
+
 // Get all products with optional filtering
 exports.getAllProducts = async (req, res) => {
     try {
@@ -133,6 +151,7 @@ exports.createProduct = async (req, res) => {
     try {
         const { name, description, companyId, subcategoryId, attributes, saveAsDraft } = req.body;
         const operatorId = req.operator.operator_id;
+        const normalizedAttributes = normalizeAttributes(attributes);
 
         if (!name || !companyId) {
             return res.status(400).json({ error: 'Name and company ID are required' });
@@ -163,12 +182,12 @@ exports.createProduct = async (req, res) => {
                 description,
                 companyId,
                 subcategoryId,
-                attributes
+                attributes: normalizedAttributes
             };
 
             // Insert attributes if provided
-            if (attributes && Array.isArray(attributes)) {
-                for (const attr of attributes) {
+            if (normalizedAttributes.length > 0) {
+                for (const attr of normalizedAttributes) {
                     await client.query(
                         `INSERT INTO product_attributes (product_id, attribute_name, attribute_value, attribute_type)
                          VALUES ($1, $2, $3, $4)`,
@@ -221,6 +240,8 @@ exports.updateProduct = async (req, res) => {
         const { productId } = req.params;
         const { name, description, companyId, subcategoryId, attributes, saveAsDraft } = req.body;
         const operatorId = req.operator.operator_id;
+        const normalizedAttributes = normalizeAttributes(attributes);
+        const hasAttributesPayload = Array.isArray(attributes);
 
         const client = await pool.connect();
 
@@ -261,13 +282,13 @@ exports.updateProduct = async (req, res) => {
                 description: description !== undefined ? description : oldData.description,
                 companyId: companyId || oldData.company_id,
                 subcategoryId: subcategoryId !== undefined ? subcategoryId : oldData.subcategory_id,
-                attributes
+                attributes: normalizedAttributes
             };
 
-            // Delete and recreate attributes if provided
-            if (attributes && Array.isArray(attributes)) {
+            // Delete and recreate attributes when attributes payload is provided
+            if (hasAttributesPayload) {
                 await client.query('DELETE FROM product_attributes WHERE product_id = $1', [productId]);
-                for (const attr of attributes) {
+                for (const attr of normalizedAttributes) {
                     await client.query(
                         `INSERT INTO product_attributes (product_id, attribute_name, attribute_value, attribute_type)
                          VALUES ($1, $2, $3, $4)`,
@@ -286,6 +307,12 @@ exports.updateProduct = async (req, res) => {
                     `INSERT INTO product_drafts (product_id, operator_id, draft_data, is_active)
                      VALUES ($1, $2, $3, true)`,
                     [productId, operatorId, JSON.stringify(newData)]
+                );
+            } else {
+                // Ensure product is published by clearing active drafts
+                await client.query(
+                    `UPDATE product_drafts SET is_active = false WHERE product_id = $1`,
+                    [productId]
                 );
             }
 
@@ -315,6 +342,174 @@ exports.updateProduct = async (req, res) => {
     } catch (error) {
         console.error('Error updating product:', error);
         res.status(500).json({ error: 'Failed to update product' });
+    }
+};
+
+// Get active drafts for current operator
+exports.getDrafts = async (req, res) => {
+    try {
+        const operatorId = req.operator.operator_id;
+
+        const query = `
+            SELECT
+                pd.draft_id,
+                pd.product_id,
+                pd.operator_id,
+                pd.draft_data,
+                pd.is_active,
+                pd.created_at,
+                pd.updated_at,
+                p.name,
+                c.name AS company_name,
+                sc.name AS category
+            FROM product_drafts pd
+            LEFT JOIN products p ON pd.product_id = p.product_id
+            LEFT JOIN companies c ON p.company_id = c.company_id
+            LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.subcategory_id
+            WHERE pd.operator_id = $1
+              AND pd.is_active = true
+            ORDER BY pd.updated_at DESC
+        `;
+
+        const result = await pool.query(query, [operatorId]);
+
+        const drafts = result.rows.map((row) => {
+            let data = {};
+            try {
+                data = row.draft_data ? JSON.parse(row.draft_data) : {};
+            } catch {
+                data = {};
+            }
+
+            return {
+                ...row,
+                data
+            };
+        });
+
+        res.json({
+            success: true,
+            data: drafts
+        });
+    } catch (error) {
+        console.error('Error fetching drafts:', error);
+        res.status(500).json({ error: 'Failed to fetch drafts' });
+    }
+};
+
+// Delete a draft
+exports.deleteDraft = async (req, res) => {
+    try {
+        const { draftId } = req.params;
+        const operatorId = req.operator.operator_id;
+        const client = await pool.connect();
+
+        try {
+            await client.query('BEGIN');
+
+            const draftResult = await client.query(
+                `SELECT * FROM product_drafts
+                 WHERE draft_id = $1 AND operator_id = $2`,
+                [draftId, operatorId]
+            );
+
+            if (draftResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ error: 'Draft not found' });
+            }
+
+            const draft = draftResult.rows[0];
+            let oldDraftData = {};
+            try {
+                oldDraftData = draft.draft_data ? JSON.parse(draft.draft_data) : {};
+            } catch {
+                oldDraftData = {};
+            }
+
+            await client.query(
+                `DELETE FROM product_drafts
+                 WHERE draft_id = $1 AND operator_id = $2`,
+                [draftId, operatorId]
+            );
+
+            await logDataChange(
+                operatorId,
+                draft.product_id,
+                'DELETE',
+                oldDraftData,
+                null,
+                client
+            );
+
+            await client.query('COMMIT');
+
+            res.json({
+                success: true,
+                message: 'Draft deleted successfully'
+            });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    } catch (error) {
+        console.error('Error deleting draft:', error);
+        res.status(500).json({ error: 'Failed to delete draft' });
+    }
+};
+
+// Get audit logs (global or filtered by product)
+exports.getAuditLogs = async (req, res) => {
+    try {
+        const { action = 'all', productId, limit = 100, offset = 0 } = req.query;
+
+        let query = `
+            SELECT
+                dcl.log_id,
+                dcl.action,
+                dcl.old_data,
+                dcl.new_data,
+                dcl.timestamp AS created_at,
+                p.product_id,
+                COALESCE(
+                    p.name,
+                    CASE WHEN dcl.old_data IS NOT NULL THEN (dcl.old_data::jsonb ->> 'name') END,
+                    CASE WHEN dcl.new_data IS NOT NULL THEN (dcl.new_data::jsonb ->> 'name') END,
+                    'N/A'
+                ) AS product_name,
+                o.name AS performed_by
+            FROM data_change_logs dcl
+            LEFT JOIN products p ON dcl.product_id = p.product_id
+            LEFT JOIN data_operators o ON dcl.operator_id = o.operator_id
+            WHERE 1=1
+        `;
+
+        const params = [];
+
+        if (productId) {
+            params.push(Number.parseInt(productId, 10));
+            query += ` AND dcl.product_id = $${params.length}`;
+        }
+
+        if (action && action !== 'all') {
+            params.push(action.toUpperCase());
+            query += ` AND dcl.action = $${params.length}`;
+        }
+
+        params.push(Number.parseInt(limit, 10) || 100);
+        params.push(Number.parseInt(offset, 10) || 0);
+        query += ` ORDER BY dcl.timestamp DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
+
+        const result = await pool.query(query, params);
+
+        res.json({
+            success: true,
+            data: result.rows
+        });
+    } catch (error) {
+        console.error('Error fetching audit logs:', error);
+        res.status(500).json({ error: 'Failed to fetch audit logs' });
     }
 };
 
@@ -378,29 +573,62 @@ exports.publishDraft = async (req, res) => {
     try {
         const { draftId } = req.params;
         const operatorId = req.operator.operator_id;
+        const client = await pool.connect();
 
-        const draftResult = await pool.query(
-            `SELECT * FROM product_drafts WHERE draft_id = $1`,
-            [draftId]
-        );
+        try {
+            await client.query('BEGIN');
 
-        if (draftResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Draft not found' });
+            const draftResult = await client.query(
+                `SELECT * FROM product_drafts WHERE draft_id = $1`,
+                [draftId]
+            );
+
+            if (draftResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ error: 'Draft not found' });
+            }
+
+            const draft = draftResult.rows[0];
+
+            // Mark as inactive
+            await client.query(
+                `UPDATE product_drafts SET is_active = false WHERE draft_id = $1`,
+                [draftId]
+            );
+
+            let oldDraftData = {};
+            try {
+                oldDraftData = draft.draft_data ? JSON.parse(draft.draft_data) : {};
+            } catch {
+                oldDraftData = {};
+            }
+
+            await logDataChange(
+                operatorId,
+                draft.product_id,
+                'PUBLISH',
+                oldDraftData,
+                {
+                    ...oldDraftData,
+                    published: true,
+                    publishedFromDraftId: draftId
+                },
+                client
+            );
+
+            await client.query('COMMIT');
+
+            res.json({
+                success: true,
+                message: 'Draft published successfully',
+                productId: draft.product_id
+            });
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
         }
-
-        const draft = draftResult.rows[0];
-
-        // Mark as inactive
-        await pool.query(
-            `UPDATE product_drafts SET is_active = false WHERE draft_id = $1`,
-            [draftId]
-        );
-
-        res.json({
-            success: true,
-            message: 'Draft published successfully',
-            productId: draft.product_id
-        });
     } catch (error) {
         console.error('Error publishing draft:', error);
         res.status(500).json({ error: 'Failed to publish draft' });

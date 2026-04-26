@@ -14,9 +14,12 @@ router.put('/products/:productId', productController.updateProduct);
 router.delete('/products/:productId', productController.deleteProduct);
 
 // Draft and publish routes
+router.get('/drafts', productController.getDrafts);
+router.delete('/drafts/:draftId', productController.deleteDraft);
 router.post('/drafts/:draftId/publish', productController.publishDraft);
 
 // Audit log routes
+router.get('/audit-logs', productController.getAuditLogs);
 router.get('/products/:productId/logs', productController.getChangeLogs);
 
 module.exports = router;

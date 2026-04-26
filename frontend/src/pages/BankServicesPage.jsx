@@ -12,21 +12,24 @@ function BankServicesPage() {
       icon: 'fa-hand-holding-usd',
       description: 'Personal, home, and business loans with competitive rates',
       tags: ['Personal Loan', 'Home Loan', 'Auto Loan'],
-      number: '01'
+      number: '01',
+      path: '/loans'
     },
     { 
       title: 'Deposits', 
       icon: 'fa-piggy-bank',
       description: 'Secure your savings with high-interest deposit accounts',
       tags: ['Fixed Deposit', 'Savings', 'Recurring Deposit'],
-      number: '02'
+      number: '02',
+      path: '/deposits'
     },
     { 
       title: 'Credit Cards', 
       icon: 'fa-credit-card',
       description: 'Explore cards with rewards, cashback, and travel benefits',
       tags: ['Rewards', 'Cashback', 'Travel'],
-      number: '03'
+      number: '03',
+      path: '/credit-cards'
     }
   ]
 
@@ -51,7 +54,7 @@ function BankServicesPage() {
 
         <div className="services-grid">
           {services.map((service, idx) => (
-            <div key={idx} className="service-card">
+            <div key={idx} className="service-card" onClick={() => navigate(service.path)}>
               <div className="service-glow"></div>
               <div className="service-number">{service.number}</div>
               <div className="service-icon-wrapper">
@@ -64,7 +67,13 @@ function BankServicesPage() {
                   <span key={i} className="service-tag">{tag}</span>
                 ))}
               </div>
-              <button className="service-explore-btn">
+              <button
+                className="service-explore-btn"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  navigate(service.path)
+                }}
+              >
                 <span>Explore {service.title}</span>
                 <i className="fas fa-arrow-right"></i>
               </button>

@@ -82,20 +82,28 @@ const ProductsTable = ({ products, loading, onEdit, onDelete, onFilterChange, fi
                             </tr>
                         </thead>
                         <tbody>
-                            {products.map(product => (
-                                <tr key={product.product_id} className={product.status === 'draft' ? 'draft-row' : ''}>
+                            {products.map(product => {
+                                const rowId = product.productId ?? product.product_id ?? product.id;
+                                const status = product.status ?? 'published';
+                                const company = product.companyName ?? product.company_name ?? product.company;
+                                const category = product.subcategoryName ?? product.subcategory_name ?? product.category;
+                                const createdAt = product.createdAt ?? product.created_at;
+                                const updatedAt = product.updatedAt ?? product.updated_at;
+
+                                return (
+                                <tr key={rowId} className={status === 'draft' ? 'draft-row' : ''}>
                                     <td className="product-name">
                                         <strong>{product.name}</strong>
                                     </td>
-                                    <td>{product.company_name || 'N/A'}</td>
-                                    <td>{product.subcategory_name || 'Uncategorized'}</td>
+                                    <td>{company || 'N/A'}</td>
+                                    <td>{category || 'Uncategorized'}</td>
                                     <td>
-                                        <span className={`status-badge status-${product.status}`}>
-                                            {product.status === 'draft' ? '📄 Draft' : '✓ Published'}
+                                        <span className={`status-badge status-${status}`}>
+                                            {status === 'draft' ? '📄 Draft' : '✓ Published'}
                                         </span>
                                     </td>
-                                    <td className="date">{new Date(product.created_at).toLocaleDateString()}</td>
-                                    <td className="date">{new Date(product.updated_at).toLocaleDateString()}</td>
+                                    <td className="date">{createdAt ? new Date(createdAt).toLocaleDateString() : '—'}</td>
+                                    <td className="date">{updatedAt ? new Date(updatedAt).toLocaleDateString() : '—'}</td>
                                     <td className="actions">
                                         <button
                                             className="action-btn edit-btn"
@@ -106,14 +114,15 @@ const ProductsTable = ({ products, loading, onEdit, onDelete, onFilterChange, fi
                                         </button>
                                         <button
                                             className="action-btn delete-btn"
-                                            onClick={() => onDelete(product.product_id)}
+                                            onClick={() => onDelete(rowId)}
                                             title="Delete product"
                                         >
                                             🗑️ Delete
                                         </button>
                                     </td>
                                 </tr>
-                            ))}
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>

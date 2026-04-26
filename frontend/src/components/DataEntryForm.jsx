@@ -18,7 +18,7 @@ const DataEntryForm = ({ product, onSaved, onCancel }) => {
     const [selectedCategory, setSelectedCategory] = useState(null);
 
     const token = localStorage.getItem('adminToken');
-    const apiBaseUrl = 'http://localhost:3000/api';
+    const apiBaseUrl = import.meta.env.VITE_API_URL || '/api';
 
     const PRODUCT_CATEGORIES = {
         savings_accounts: {

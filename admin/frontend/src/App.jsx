@@ -3,13 +3,42 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import AdminDataEntryPage from '../admin/pages/AdminDataEntryPage'
 import AdminLoginPage from './pages/AdminLoginPage'
 
+const clearAdminSession = () => {
+  localStorage.removeItem('adminToken')
+  localStorage.removeItem('adminUser')
+}
+
+const isTokenValid = (token) => {
+  if (!token) return false
+
+  try {
+    const payloadBase64 = token.split('.')[1]
+    if (!payloadBase64) return false
+
+    const payload = JSON.parse(atob(payloadBase64))
+    if (!payload?.exp) return false
+
+    const nowInSeconds = Math.floor(Date.now() / 1000)
+    return payload.exp > nowInSeconds
+  } catch {
+    return false
+  }
+}
+
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const token = localStorage.getItem('adminToken')
-    setIsAuthenticated(!!token)
+
+    if (isTokenValid(token)) {
+      setIsAuthenticated(true)
+    } else {
+      clearAdminSession()
+      setIsAuthenticated(false)
+    }
+
     setLoading(false)
   }, [])
 
@@ -18,8 +47,7 @@ function App() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('adminToken')
-    localStorage.removeItem('adminUser')
+    clearAdminSession()
     setIsAuthenticated(false)
   }
 

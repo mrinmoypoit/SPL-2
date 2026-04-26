@@ -457,87 +457,279 @@ app.get('/api/auth/check-admin', authenticateToken, async (req, res) => {
 });
 
 // Get All Products (for user frontend)
-app.get('/api/products', async (req, res) => {
+const normalizeAttributeKey = (value = '') =>
+    String(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+
+const extractProductFeatures = (attributes = []) => {
+    if (!Array.isArray(attributes)) {
+        return [];
+    }
+
+    const explicitFeatureMap = new Map();
+    const fallbackFeatures = [];
+
+    for (const attribute of attributes) {
+        const name = attribute?.attribute_name || attribute?.name;
+        const value = attribute?.attribute_value ?? attribute?.value;
+
+        if (!name || value === null || value === undefined || value === '') {
+            continue;
+        }
+
+        const normalizedName = normalizeAttributeKey(name);
+        const stringValue = String(value).trim();
+
+        if (!stringValue) {
+            continue;
+        }
+
+        const explicitMatch = normalizedName.match(/^feature_?(\d+)$/);
+        if (explicitMatch) {
+            explicitFeatureMap.set(Number.parseInt(explicitMatch[1], 10), stringValue);
+            continue;
+        }
+
+        if (normalizedName === 'features') {
+            stringValue
+                .split(/[,;\n]+/)
+                .map((item) => item.trim())
+                .filter(Boolean)
+                .forEach((item) => fallbackFeatures.push(item));
+            continue;
+        }
+
+        fallbackFeatures.push(`${name}: ${stringValue}`);
+    }
+
+    const orderedExplicit = [...explicitFeatureMap.entries()]
+        .sort((first, second) => first[0] - second[0])
+        .map((entry) => entry[1]);
+
+    const uniqueFallback = [...new Set(fallbackFeatures)];
+
+    return [...orderedExplicit, ...uniqueFallback].slice(0, 3);
+};
+
+const queryProducts = async ({ category = 'all', search = '', limit = 20, offset = 0 }) => {
+    let queryStr = `
+        SELECT 
+            p.product_id as id, 
+            p.name, 
+            p.description,
+            c.name as company, 
+            sc.name as category,
+            cat.name as parent_category,
+            c.metrics,
+            COALESCE(
+                json_agg(
+                    json_build_object(
+                        'attribute_name', pa.attribute_name,
+                        'attribute_value', pa.attribute_value,
+                        'attribute_type', pa.attribute_type
+                    )
+                ) FILTER (WHERE pa.attribute_id IS NOT NULL),
+                '[]'::json
+            ) as attributes
+        FROM products p
+        LEFT JOIN companies c ON p.company_id = c.company_id
+        LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.subcategory_id
+        LEFT JOIN category cat ON sc.category_id = cat.category_id
+        LEFT JOIN product_attributes pa ON p.product_id = pa.product_id
+        WHERE 1=1
+    `;
+    let countQueryStr = `
+        SELECT COUNT(*) 
+        FROM products p
+        LEFT JOIN companies c ON p.company_id = c.company_id
+        LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.subcategory_id
+        LEFT JOIN category cat ON sc.category_id = cat.category_id
+        WHERE 1=1
+    `;
+    const queryParams = [];
+
+    if (category !== 'all') {
+        queryParams.push(category);
+        queryStr += ` AND (sc.name ILIKE $${queryParams.length} OR cat.name ILIKE $${queryParams.length})`;
+        countQueryStr += ` AND (sc.name ILIKE $${queryParams.length} OR cat.name ILIKE $${queryParams.length})`;
+    }
+
+    if (search) {
+        queryParams.push(`%${search}%`);
+        queryStr += ` AND p.name ILIKE $${queryParams.length}`;
+        countQueryStr += ` AND p.name ILIKE $${queryParams.length}`;
+    }
+
+    queryStr += ` GROUP BY p.product_id, c.name, c.metrics, sc.name, cat.name`;
+    queryStr += ` ORDER BY p.product_id DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
+
+    const parsedLimit = Number.parseInt(limit, 10);
+    const parsedOffset = Number.parseInt(offset, 10);
+    const limitParams = [...queryParams, Number.isFinite(parsedLimit) ? parsedLimit : 20, Number.isFinite(parsedOffset) ? parsedOffset : 0];
+
+    const countResult = await pool.query(countQueryStr, queryParams);
+    const total = parseInt(countResult.rows[0].count);
+
+    const result = await pool.query(queryStr, limitParams);
+
+    const products = result.rows.map((row) => {
+        const features = extractProductFeatures(row.attributes);
+        let rating;
+
+        try {
+            const metricsObject = typeof row.metrics === 'string' ? JSON.parse(row.metrics) : row.metrics;
+            if (metricsObject && metricsObject.rating !== undefined && metricsObject.rating !== null) {
+                rating = metricsObject.rating;
+            }
+        } catch {
+            rating = undefined;
+        }
+
+        return {
+            ...row,
+            rating,
+            features,
+            attributes: row.attributes || []
+        };
+    });
+
+    return {
+        products,
+        count: products.length,
+        total
+    };
+};
+
+const getProductsHandler = async (req, res) => {
     try {
         const { category = 'all', search = '', limit = 20, offset = 0 } = req.query;
-
-        // Mock products data
-        const products = [
-            {
-                id: 1,
-                name: 'Premium Credit Card',
-                description: 'High-reward credit card with exclusive benefits',
-                company: 'Bank A',
-                category: 'Credit Cards',
-                rating: 4.5,
-                features: ['5% Cashback', 'Zero Annual Fee', 'Priority Support']
-            },
-            {
-                id: 2,
-                name: 'Personal Loan',
-                description: 'Flexible personal loan with competitive rates',
-                company: 'Bank B',
-                category: 'Loans',
-                rating: 4.3,
-                features: ['Low Interest', 'Fast Approval', 'No Hidden Charges']
-            },
-            {
-                id: 3,
-                name: 'Savings Account',
-                description: 'High-yield savings account for maximum returns',
-                company: 'Bank C',
-                category: 'Savings',
-                rating: 4.7,
-                features: ['4.5% Interest', 'No Minimum Balance', 'Free Debit Card']
-            },
-            {
-                id: 4,
-                name: 'Fixed Deposit',
-                description: 'Secure investment with guaranteed returns',
-                company: 'Bank A',
-                category: 'Deposits',
-                rating: 4.6,
-                features: ['6% Interest', 'Insured Up to 5 Lakh', 'Flexible Tenure']
-            }
-        ];
-
-        const filtered = products.filter(p => {
-            if (category !== 'all' && p.category !== category) return false;
-            if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
-            return true;
-        });
-
-        res.json({
-            products: filtered.slice(offset, offset + parseInt(limit)),
-            count: filtered.length,
-            total: products.length
-        });
+        const payload = await queryProducts({ category, search, limit, offset });
+        res.json(payload);
     } catch (error) {
+        console.error('Error fetching products:', error);
         res.status(500).json({ error: 'Failed to fetch products' });
     }
-});
+};
+
+// Canonical API path
+app.get('/api/products', getProductsHandler);
+
+// Compatibility alias (so `fetch('http://host:PORT/products')` can work)
+app.get('/products', getProductsHandler);
+
+const recommendationsHandler = async (req, res) => {
+    try {
+        const source = req.method === 'GET' ? (req.query || {}) : (req.body || {});
+        const { preferences = {}, category, search, limit = 10, offset = 0 } = source;
+
+        const resolvedCategory = category || preferences.category || 'all';
+        const resolvedSearch = search || preferences.search || '';
+
+        const payload = await queryProducts({
+            category: resolvedCategory,
+            search: resolvedSearch,
+            limit,
+            offset
+        });
+
+        return res.json({
+            recommendations: payload.products,
+            count: payload.count,
+            total: payload.total,
+            used: {
+                category: resolvedCategory,
+                search: resolvedSearch,
+                limit,
+                offset
+            }
+        });
+    } catch (error) {
+        console.error('Error generating recommendations:', error);
+        res.status(500).json({ error: 'Failed to generate recommendations' });
+    }
+};
+
+app.post('/api/recommendations', recommendationsHandler);
+app.get('/api/recommendations', recommendationsHandler);
+app.post('/recommendations', recommendationsHandler);
+app.get('/recommendations', recommendationsHandler);
 
 // Get Single Product
 app.get('/api/products/:id', async (req, res) => {
     try {
-        const product = {
-            id: parseInt(req.params.id),
-            name: 'Premium Credit Card',
-            description: 'Premium credit card with exclusive benefits',
-            company: 'Bank A',
-            category: 'Credit Cards',
-            rating: 4.5,
-            features: ['5% Cashback', 'Zero Annual Fee', 'Priority Support'],
-            details: {
-                annualFee: 'Rs. 0',
-                joiningBonus: 'Rs. 1000',
-                rewardPoints: '1 point per rupee',
-                eligibility: 'Minimum 2 lakh annual income'
-            }
-        };
+        const productId = Number.parseInt(req.params.id, 10);
+        const query = `
+            SELECT
+                p.product_id as id,
+                p.name,
+                p.description,
+                c.name as company,
+                sc.name as category,
+                cat.name as parent_category,
+                c.metrics,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'attribute_name', pa.attribute_name,
+                            'attribute_value', pa.attribute_value,
+                            'attribute_type', pa.attribute_type
+                        )
+                    ) FILTER (WHERE pa.attribute_id IS NOT NULL),
+                    '[]'::json
+                ) as attributes
+            FROM products p
+            LEFT JOIN companies c ON p.company_id = c.company_id
+            LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.subcategory_id
+            LEFT JOIN category cat ON sc.category_id = cat.category_id
+            LEFT JOIN product_attributes pa ON p.product_id = pa.product_id
+            WHERE p.product_id = $1
+            GROUP BY p.product_id, c.name, c.metrics, sc.name, cat.name
+        `;
 
-        res.json({ product });
+        const result = await pool.query(query, [productId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+
+        const row = result.rows[0];
+        const features = extractProductFeatures(row.attributes);
+        let rating;
+
+        try {
+            const metricsObject = typeof row.metrics === 'string' ? JSON.parse(row.metrics) : row.metrics;
+            if (metricsObject && metricsObject.rating !== undefined && metricsObject.rating !== null) {
+                rating = metricsObject.rating;
+            }
+        } catch {
+            rating = undefined;
+        }
+
+        const details = (row.attributes || []).reduce((accumulator, attr) => {
+            const name = attr?.attribute_name;
+            const value = attr?.attribute_value;
+
+            if (!name || value === null || value === undefined || value === '') {
+                return accumulator;
+            }
+
+            accumulator[name] = value;
+            return accumulator;
+        }, {});
+
+        res.json({
+            product: {
+                ...row,
+                rating,
+                features,
+                details,
+                attributes: row.attributes || []
+            }
+        });
     } catch (error) {
+        console.error('Error fetching product:', error);
         res.status(500).json({ error: 'Failed to fetch product' });
     }
 });
@@ -631,7 +823,7 @@ app.get('/api/admin/operators/dashboard/stats', authenticateToken, async (req, r
 
         // Get changes made today
         const changesTodayResult = await pool.query(
-            `SELECT COUNT(*) as count FROM data_change_logs WHERE DATE(created_at) = CURRENT_DATE`
+            `SELECT COUNT(*) as count FROM data_change_logs WHERE DATE(timestamp) = CURRENT_DATE`
         );
         const changestoday = parseInt(changesTodayResult.rows[0].count);
 
@@ -663,44 +855,51 @@ app.get('/api/admin/products', authenticateToken, async (req, res) => {
     try {
         const { status = 'all', searchTerm = '', limit = 20, offset = 0 } = req.query;
 
-        // Mock products data
-        const products = [
-            {
-                productId: 1,
-                name: 'Premium Credit Card',
-                description: 'High-reward credit card',
-                companyId: 1,
-                companyName: 'Bank A',
-                subcategoryId: 1,
-                subcategoryName: 'Credit Cards',
-                status: 'published',
-                createdAt: new Date(),
-                updatedAt: new Date()
-            },
-            {
-                productId: 2,
-                name: 'Personal Loan',
-                description: 'Flexible personal loan',
-                companyId: 2,
-                companyName: 'Bank B',
-                subcategoryId: 2,
-                subcategoryName: 'Loans',
-                status: 'draft',
-                createdAt: new Date(),
-                updatedAt: new Date()
-            }
-        ];
+        // DB query for admin products
+        let queryStr = `
+            SELECT 
+                p.product_id as "productId", 
+                p.name, 
+                p.description,
+                c.company_id as "companyId", 
+                c.name as "companyName",
+                sc.subcategory_id as "subcategoryId", 
+                sc.name as "subcategoryName",
+                'published' as status,
+                p.created_at as "createdAt", 
+                p.updated_at as "updatedAt"
+            FROM products p
+            LEFT JOIN companies c ON p.company_id = c.company_id
+            LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.subcategory_id
+            WHERE 1=1
+        `;
+        let countQueryStr = `
+            SELECT COUNT(*) 
+            FROM products p
+            LEFT JOIN companies c ON p.company_id = c.company_id
+            LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.subcategory_id
+            WHERE 1=1
+        `;
+        const queryParams = [];
 
-        const filtered = products.filter(p => {
-            if (status !== 'all' && p.status !== status) return false;
-            if (searchTerm && !p.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-            return true;
-        });
+        if (searchTerm) {
+            queryParams.push(`%${searchTerm}%`);
+            queryStr += ` AND p.name ILIKE $${queryParams.length}`;
+            countQueryStr += ` AND p.name ILIKE $${queryParams.length}`;
+        }
+        
+        queryStr += ` ORDER BY p.product_id DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
+
+        const limitParams = [...queryParams, parseInt(limit), parseInt(offset)];
+        const countResult = await pool.query(countQueryStr, queryParams);
+        const total = parseInt(countResult.rows[0].count);
+
+        const result = await pool.query(queryStr, limitParams);
 
         res.json({
-            products: filtered.slice(offset, offset + parseInt(limit)),
-            count: filtered.length,
-            total: products.length
+            products: result.rows,
+            count: result.rows.length,
+            total: total
         });
     } catch (error) {
         console.error('Error fetching products:', error);

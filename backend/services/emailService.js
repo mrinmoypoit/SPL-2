@@ -1,96 +1,69 @@
 const nodemailer = require('nodemailer');
 require('dotenv').config();
 
-// Create email transporter
+const EMAIL_HOST = process.env.EMAIL_HOST || 'smtp.gmail.com';
+const EMAIL_PORT = Number.parseInt(process.env.EMAIL_PORT, 10) || 587;
+const EMAIL_SECURE = process.env.EMAIL_SECURE
+    ? process.env.EMAIL_SECURE === 'true'
+    : EMAIL_PORT === 465;
+const EMAIL_USER = (process.env.EMAIL_USER || '').trim();
+const EMAIL_PASSWORD = ((process.env.EMAIL_APP_PASSWORD || process.env.EMAIL_PASSWORD || '').trim()).replace(/\s+/g, '');
+const HAS_EMAIL_CREDENTIALS = Boolean(EMAIL_USER && EMAIL_PASSWORD);
+
 const transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: process.env.EMAIL_PORT || 587,
-    secure: false, // true for 465, false for other ports
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASSWORD
-    }
+    host: EMAIL_HOST,
+    port: EMAIL_PORT,
+    secure: EMAIL_SECURE,
+    auth: HAS_EMAIL_CREDENTIALS
+        ? {
+            user: EMAIL_USER,
+            pass: EMAIL_PASSWORD
+        }
+        : undefined
 });
 
-// Verify transporter configuration (non-blocking)
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 let emailServiceReady = false;
 
-transporter.verify((error, success) => {
-    if (error) {
-        console.warn('⚠️  Email service verification failed:', error.message);
-        console.warn('   (Will attempt to send anyway)');
-        emailServiceReady = false;
-    } else {
-        console.log('✅ Email service verified successfully');
-        emailServiceReady = true;
-    }
-});
+const getGmailAuthHint = () => 'Use a Google App Password (16 characters) in EMAIL_APP_PASSWORD. Regular Gmail account passwords are rejected by SMTP.';
 
-// Send OTP email (async, non-blocking)
-const sendOTPEmail = async (email, otpCode, otpType) => {
-    try {
-        const subject = getEmailSubject(otpType);
-        const html = getEmailTemplate(otpCode, otpType);
-
-        const mailOptions = {
-            from: `"TULONA" <${process.env.EMAIL_USER || 'noreply@tulona.com'}>`,
-            to: email,
-            subject: subject,
-            html: html
-        };
-
-        // Try to send real email
-        try {
-            const info = await transporter.sendMail(mailOptions);
-            console.log('✅ Email sent successfully to', email, '- Message ID:', info.messageId);
-            return { success: true, messageId: info.messageId, method: 'real' };
-        } catch (sendError) {
-            console.warn('⚠️  Real email send failed:', sendError.message);
-            
-            // Fallback to console logging in development
-            if (!IS_PRODUCTION) {
-                console.log(`📧 [DEV MODE] OTP code for ${email}: ${otpCode}`);
-                return { success: true, isDev: true, messageId: 'dev-mode', method: 'console' };
+// Verify transporter configuration
+if (!HAS_EMAIL_CREDENTIALS) {
+    console.warn('⚠️  Email credentials are missing. Set EMAIL_USER and EMAIL_APP_PASSWORD in backend/.env');
+    emailServiceReady = false;
+} else {
+    transporter.verify((error) => {
+        if (error) {
+            console.warn('⚠️  Email service verification failed:', error.message);
+            if (error.message && (error.message.includes('535') || error.message.includes('BadCredentials') || error.message.includes('Username and Password not accepted'))) {
+                console.warn(`   ${getGmailAuthHint()}`);
             }
-            
-            // In production, throw the error
-            throw sendError;
+            console.warn('   (Will attempt to send anyway)');
+            emailServiceReady = false;
+        } else {
+            console.log('✅ Email service verified successfully');
+            emailServiceReady = true;
         }
-    } catch (error) {
-        console.error('❌ Email error:', error.message);
-        
-        // Don't block authentication on email errors
-        return { success: true, error: error.message, method: 'error-fallback' };
-    }
-};
+    });
+}
 
-// Get email subject based on OTP type
+// Helper functions moved UP (or use 'function' keyword for hoisting)
 const getEmailSubject = (otpType) => {
     switch (otpType) {
-        case 'email_verification':
-            return 'Verify Your Email - TULONA';
-        case 'password_reset':
-            return 'Reset Your Password - TULONA';
-        case 'login':
-            return 'Your Login OTP - TULONA';
-        default:
-            return 'Your OTP Code - TULONA';
+        case 'email_verification': return 'Verify Your Email - TULONA';
+        case 'password_reset': return 'Reset Your Password - TULONA';
+        case 'login': return 'Your Login OTP - TULONA';
+        default: return 'Your OTP Code - TULONA';
     }
 };
 
-// Get email HTML template
 const getEmailTemplate = (otpCode, otpType) => {
     const getMessage = () => {
         switch (otpType) {
-            case 'email_verification':
-                return 'Thank you for registering with TULONA! Please use the OTP below to verify your email address.';
-            case 'password_reset':
-                return 'We received a request to reset your password. Use the OTP below to proceed.';
-            case 'login':
-                return 'Use the OTP below to complete your login to TULONA.';
-            default:
-                return 'Here is your OTP code:';
+            case 'email_verification': return 'Thank you for registering with TULONA! Please use the OTP below to verify your email address.';
+            case 'password_reset': return 'We received a request to reset your password. Use the OTP below to proceed.';
+            case 'login': return 'Use the OTP below to complete your login to TULONA.';
+            default: return 'Here is your OTP code:';
         }
     };
 
@@ -107,7 +80,6 @@ const getEmailTemplate = (otpCode, otpType) => {
             <tr>
                 <td align="center">
                     <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-                        <!-- Header -->
                         <tr>
                             <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
                                 <h1 style="margin: 0; color: #ffffff; font-size: 28px;">🏦 TULONA</h1>
@@ -115,7 +87,6 @@ const getEmailTemplate = (otpCode, otpType) => {
                             </td>
                         </tr>
                         
-                        <!-- Content -->
                         <tr>
                             <td style="padding: 40px 30px;">
                                 <h2 style="margin: 0 0 20px 0; color: #333333; font-size: 24px;">OTP Verification</h2>
@@ -123,7 +94,6 @@ const getEmailTemplate = (otpCode, otpType) => {
                                     ${getMessage()}
                                 </p>
                                 
-                                <!-- OTP Code -->
                                 <div style="background-color: #f8f9fa; border: 2px dashed #667eea; border-radius: 8px; padding: 30px; text-align: center; margin: 30px 0;">
                                     <p style="margin: 0 0 10px 0; color: #666666; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Your OTP Code</p>
                                     <h1 style="margin: 0; color: #667eea; font-size: 48px; font-weight: bold; letter-spacing: 8px;">${otpCode}</h1>
@@ -139,7 +109,6 @@ const getEmailTemplate = (otpCode, otpType) => {
                             </td>
                         </tr>
                         
-                        <!-- Footer -->
                         <tr>
                             <td style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #e0e0e0;">
                                 <p style="margin: 0 0 10px 0; color: #999999; font-size: 12px;">
@@ -159,11 +128,50 @@ const getEmailTemplate = (otpCode, otpType) => {
     `;
 };
 
-// Send welcome email (non-blocking)
+// 2. Fixed nested try-catch and incorrect success flags
+const sendOTPEmail = async (email, otpCode, otpType) => {
+    try {
+        const subject = getEmailSubject(otpType);
+        const html = getEmailTemplate(otpCode, otpType);
+
+        const mailOptions = {
+            from: `"TULONA" <${EMAIL_USER || 'noreply@tulona.com'}>`,
+            to: email,
+            subject: subject,
+            html: html
+        };
+
+        const info = await transporter.sendMail(mailOptions);
+        console.log('✅ Email sent successfully to', email, '- Message ID:', info.messageId);
+        return { success: true, messageId: info.messageId, method: 'real' };
+
+    } catch (error) {
+        console.error('❌ Email send failed:', error.message);
+        const gmailAuthError = error.message && (error.message.includes('535') || error.message.includes('BadCredentials') || error.message.includes('Username and Password not accepted'));
+        
+        // Fallback to console logging in development
+        if (!IS_PRODUCTION) {
+            if (gmailAuthError) {
+                console.warn(`⚠️  ${getGmailAuthHint()}`);
+            }
+            console.log(`📧 [DEV MODE] OTP code for ${email}: ${otpCode}`);
+            // Success is true here ONLY because we are emulating an email in dev mode
+            return { success: true, isDev: true, messageId: 'dev-mode', method: 'console' };
+        }
+        
+        // In production, an error MUST return success: false
+        return {
+            success: false,
+            error: gmailAuthError ? `${error.message}. ${getGmailAuthHint()}` : error.message,
+            method: 'error-fallback'
+        };
+    }
+};
+
 const sendWelcomeEmail = async (email, name) => {
     try {
         const mailOptions = {
-            from: `"TULONA" <${process.env.EMAIL_USER || 'noreply@tulona.com'}>`,
+            from: `"TULONA" <${EMAIL_USER || 'noreply@tulona.com'}>`,
             to: email,
             subject: 'Welcome to TULONA! 🎉',
             html: `
@@ -189,25 +197,20 @@ const sendWelcomeEmail = async (email, name) => {
             `
         };
 
-        try {
-            await transporter.sendMail(mailOptions);
-            console.log('✅ Welcome email sent to:', email);
-        } catch (sendError) {
-            console.warn('⚠️  Welcome email send failed:', sendError.message);
-            if (!IS_PRODUCTION) {
-                console.log(`📧 [DEV MODE] Welcome would be sent to ${email}`);
-            }
-        }
+        await transporter.sendMail(mailOptions);
+        console.log('✅ Welcome email sent to:', email);
     } catch (error) {
-        console.warn('⚠️  Welcome email error:', error.message);
+        console.warn('⚠️  Welcome email send failed:', error.message);
+        if (!IS_PRODUCTION) {
+            console.log(`📧 [DEV MODE] Welcome would be sent to ${email}`);
+        }
     }
 };
 
-// Send password reset confirmation (non-blocking)
 const sendPasswordResetConfirmation = async (email, name) => {
     try {
         const mailOptions = {
-            from: `"TULONA" <${process.env.EMAIL_USER || 'noreply@tulona.com'}>`,
+            from: `"TULONA" <${EMAIL_USER || 'noreply@tulona.com'}>`,
             to: email,
             subject: 'Password Changed Successfully - TULONA',
             html: `
@@ -227,17 +230,13 @@ const sendPasswordResetConfirmation = async (email, name) => {
             `
         };
 
-        try {
-            await transporter.sendMail(mailOptions);
-            console.log('✅ Password reset confirmation sent to:', email);
-        } catch (sendError) {
-            console.warn('⚠️  Confirmation email send failed:', sendError.message);
-            if (!IS_PRODUCTION) {
-                console.log(`📧 [DEV MODE] Confirmation would be sent to ${email}`);
-            }
-        }
+        await transporter.sendMail(mailOptions);
+        console.log('✅ Password reset confirmation sent to:', email);
     } catch (error) {
-        console.warn('⚠️  Confirmation email error:', error.message);
+        console.warn('⚠️  Confirmation email send failed:', error.message);
+        if (!IS_PRODUCTION) {
+            console.log(`📧 [DEV MODE] Confirmation would be sent to ${email}`);
+        }
     }
 };
 

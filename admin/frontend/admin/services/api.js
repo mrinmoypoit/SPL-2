@@ -1,19 +1,19 @@
 // API Configuration and Base Functions
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Get stored auth token
 export const getAuthToken = () => {
-    return localStorage.getItem('operatorToken');
+    return localStorage.getItem('adminToken');
 };
 
 // Set auth token
 export const setAuthToken = (token) => {
-    localStorage.setItem('operatorToken', token);
+    localStorage.setItem('adminToken', token);
 };
 
 // Remove auth token
 export const removeAuthToken = () => {
-    localStorage.removeItem('operatorToken');
+    localStorage.removeItem('adminToken');
 };
 
 // Generic API request handler

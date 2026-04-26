@@ -6,6 +6,8 @@ import './AuthModal.css'
 
 function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
   const { login } = useAuth()
+  const rawGoogleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim()
+  const isGoogleOAuthConfigured = Boolean(rawGoogleClientId) && !rawGoogleClientId.startsWith('YOUR_')
   const [mode, setMode] = useState(initialMode) // 'login', 'signup', 'forgot'
   const [step, setStep] = useState(1) // For multi-step forms
   const [loading, setLoading] = useState(false)
@@ -95,18 +97,26 @@ function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
             <h2>Welcome Back!</h2>
             <p className="auth-subtitle">Sign in to access your account</p>
 
-            <div className="google-login-wrapper">
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={handleGoogleError}
-                theme="outline"
-                width="100%"
-              />
-            </div>
+            {isGoogleOAuthConfigured ? (
+              <>
+                <div className="google-login-wrapper">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={handleGoogleError}
+                    theme="outline"
+                    width="100%"
+                  />
+                </div>
 
-            <div className="divider">
-              <span>OR</span>
-            </div>
+                <div className="divider">
+                  <span>OR</span>
+                </div>
+              </>
+            ) : (
+              <div className="oauth-warning-message">
+                Google sign-in is unavailable. Set `VITE_GOOGLE_CLIENT_ID` in `frontend/.env`.
+              </div>
+            )}
 
             <form className="auth-form" onSubmit={async (e) => {
               e.preventDefault()
@@ -178,18 +188,26 @@ function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
             <h2>Create Account</h2>
             <p className="auth-subtitle">Start your journey with TULONA</p>
 
-            <div className="google-login-wrapper">
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={handleGoogleError}
-                theme="outline"
-                width="100%"
-              />
-            </div>
+            {isGoogleOAuthConfigured ? (
+              <>
+                <div className="google-login-wrapper">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={handleGoogleError}
+                    theme="outline"
+                    width="100%"
+                  />
+                </div>
 
-            <div className="divider">
-              <span>OR</span>
-            </div>
+                <div className="divider">
+                  <span>OR</span>
+                </div>
+              </>
+            ) : (
+              <div className="oauth-warning-message">
+                Google sign-up is unavailable. Set `VITE_GOOGLE_CLIENT_ID` in `frontend/.env`.
+              </div>
+            )}
 
             <form className="auth-form" onSubmit={(e) => { e.preventDefault(); setStep(2); }}>
               <div className="form-group">

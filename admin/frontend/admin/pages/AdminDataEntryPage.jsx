@@ -5,7 +5,9 @@ import ProductsTable from '../components/ProductsTable';
 import AuditLogs from '../components/AuditLogs';
 import DraftsPanel from '../components/DraftsPanel';
 
-const AdminDataEntryPage = () => {
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+
+const AdminDataEntryPage = ({ onLogout }) => {
     const [activeTab, setActiveTab] = useState('entry');
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -24,9 +26,14 @@ const AdminDataEntryPage = () => {
         changes_today: 0,
         active_drafts: 0
     });
+    const [drafts, setDrafts] = useState([]);
+    const [draftsLoading, setDraftsLoading] = useState(false);
+    const [logs, setLogs] = useState([]);
+    const [logsLoading, setLogsLoading] = useState(false);
+    const [logsFilter, setLogsFilter] = useState('all');
 
     const token = localStorage.getItem('adminToken');
-    const apiBaseUrl = 'http://localhost:3000/api';
+    const apiBaseUrl = API_BASE_URL;
 
     // Fetch statistics
     useEffect(() => {
@@ -37,10 +44,31 @@ const AdminDataEntryPage = () => {
 
     // Fetch products
     useEffect(() => {
-        if (token && activeTab === 'entry') {
+        if (token && activeTab === 'view') {
             fetchProducts();
         }
     }, [token, activeTab, filters]);
+
+    useEffect(() => {
+        if (token && activeTab === 'drafts') {
+            fetchDrafts();
+        }
+    }, [token, activeTab]);
+
+    useEffect(() => {
+        if (token && activeTab === 'logs') {
+            fetchAuditLogs(logsFilter);
+        }
+    }, [token, activeTab, logsFilter]);
+
+    const handleUnauthorized = (fallbackMessage = 'Session expired. Please log in again.') => {
+        localStorage.removeItem('adminToken');
+        localStorage.removeItem('adminUser');
+        setError(fallbackMessage);
+        if (typeof onLogout === 'function') {
+            onLogout();
+        }
+    };
 
     const fetchDashboardStats = async () => {
         try {
@@ -49,6 +77,11 @@ const AdminDataEntryPage = () => {
                     'Authorization': `Bearer ${token}`
                 }
             });
+
+            if (response.status === 401 || response.status === 403) {
+                handleUnauthorized('Invalid or expired token. Please log in again.');
+                return;
+            }
 
             if (response.ok) {
                 const data = await response.json();
@@ -63,9 +96,9 @@ const AdminDataEntryPage = () => {
         setLoading(true);
         try {
             let url = `${apiBaseUrl}/admin/products?limit=20&offset=0`;
-            if (filters.searchTerm) url += `&searchTerm=${filters.searchTerm}`;
-            if (filters.status !== 'all') url += `&status=${filters.status}`;
-            if (filters.category !== 'all') url += `&category=${filters.category}`;
+            if (filters.searchTerm) url += `&searchTerm=${encodeURIComponent(filters.searchTerm)}`;
+            if (filters.status !== 'all') url += `&status=${encodeURIComponent(filters.status)}`;
+            if (filters.category !== 'all') url += `&category=${encodeURIComponent(filters.category)}`;
 
             const response = await fetch(url, {
                 headers: {
@@ -73,11 +106,17 @@ const AdminDataEntryPage = () => {
                 }
             });
 
+            if (response.status === 401 || response.status === 403) {
+                handleUnauthorized('Invalid or expired token. Please log in again.');
+                return;
+            }
+
             if (response.ok) {
                 const data = await response.json();
                 setProducts(data.data);
             } else {
-                setError('Failed to fetch products');
+                const errorData = await response.json().catch(() => ({}));
+                setError(errorData.error || 'Failed to fetch products');
             }
         } catch (error) {
             setError('Error fetching products: ' + error.message);
@@ -86,11 +125,70 @@ const AdminDataEntryPage = () => {
         }
     };
 
+    const fetchDrafts = async () => {
+        setDraftsLoading(true);
+        try {
+            const response = await fetch(`${apiBaseUrl}/admin/drafts`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.status === 401 || response.status === 403) {
+                handleUnauthorized('Invalid or expired token. Please log in again.');
+                return;
+            }
+
+            if (response.ok) {
+                const data = await response.json();
+                setDrafts(data.data || []);
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                setError(errorData.error || 'Failed to fetch drafts');
+            }
+        } catch (error) {
+            setError('Error fetching drafts: ' + error.message);
+        } finally {
+            setDraftsLoading(false);
+        }
+    };
+
+    const fetchAuditLogs = async (action = 'all') => {
+        setLogsLoading(true);
+        try {
+            const query = action && action !== 'all' ? `?action=${encodeURIComponent(action)}` : '';
+            const response = await fetch(`${apiBaseUrl}/admin/audit-logs${query}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.status === 401 || response.status === 403) {
+                handleUnauthorized('Invalid or expired token. Please log in again.');
+                return;
+            }
+
+            if (response.ok) {
+                const data = await response.json();
+                setLogs(data.data || []);
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                setError(errorData.error || 'Failed to fetch audit logs');
+            }
+        } catch (error) {
+            setError('Error fetching audit logs: ' + error.message);
+        } finally {
+            setLogsLoading(false);
+        }
+    };
+
     const handleProductSaved = (product) => {
         setSuccessMessage(editingProduct ? 'Product updated successfully' : 'Product created successfully');
         setEditingProduct(null);
         setActiveTab('view');
         fetchProducts();
+        fetchDashboardStats();
+        fetchDrafts();
         setTimeout(() => setSuccessMessage(''), 3000);
     };
 
@@ -109,6 +207,11 @@ const AdminDataEntryPage = () => {
                     }
                 });
 
+                if (response.status === 401 || response.status === 403) {
+                    handleUnauthorized('Invalid or expired token. Please log in again.');
+                    return;
+                }
+
                 if (response.ok) {
                     setSuccessMessage('Product deleted successfully');
                     fetchProducts();
@@ -119,6 +222,89 @@ const AdminDataEntryPage = () => {
             } catch (error) {
                 setError('Error deleting product: ' + error.message);
             }
+        }
+    };
+
+    const handlePublishDraft = async (draftId) => {
+        try {
+            const response = await fetch(`${apiBaseUrl}/admin/drafts/${draftId}/publish`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.status === 401 || response.status === 403) {
+                handleUnauthorized('Invalid or expired token. Please log in again.');
+                return;
+            }
+
+            if (response.ok) {
+                setSuccessMessage('Draft published successfully');
+                fetchDrafts();
+                fetchProducts();
+                fetchDashboardStats();
+                setTimeout(() => setSuccessMessage(''), 3000);
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                setError(errorData.error || 'Failed to publish draft');
+            }
+        } catch (error) {
+            setError('Error publishing draft: ' + error.message);
+        }
+    };
+
+    const handleDeleteDraft = async (draftId) => {
+        try {
+            const response = await fetch(`${apiBaseUrl}/admin/drafts/${draftId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.status === 401 || response.status === 403) {
+                handleUnauthorized('Invalid or expired token. Please log in again.');
+                return;
+            }
+
+            if (response.ok) {
+                setSuccessMessage('Draft deleted successfully');
+                fetchDrafts();
+                fetchDashboardStats();
+                setTimeout(() => setSuccessMessage(''), 3000);
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                setError(errorData.error || 'Failed to delete draft');
+            }
+        } catch (error) {
+            setError('Error deleting draft: ' + error.message);
+        }
+    };
+
+    const handleEditDraft = async (draft) => {
+        try {
+            const response = await fetch(`${apiBaseUrl}/admin/products/${draft.product_id}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.status === 401 || response.status === 403) {
+                handleUnauthorized('Invalid or expired token. Please log in again.');
+                return;
+            }
+
+            if (response.ok) {
+                const data = await response.json();
+                setEditingProduct(data.data);
+                setActiveTab('entry');
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                setError(errorData.error || 'Failed to load draft product');
+            }
+        } catch (error) {
+            setError('Error loading draft product: ' + error.message);
         }
     };
 
@@ -231,8 +417,11 @@ const AdminDataEntryPage = () => {
                 {activeTab === 'drafts' && (
                     <div className="tab-panel">
                         <DraftsPanel 
-                            token={token}
-                            apiBaseUrl={apiBaseUrl}
+                            drafts={drafts}
+                            loading={draftsLoading}
+                            onPublish={handlePublishDraft}
+                            onEdit={handleEditDraft}
+                            onDelete={handleDeleteDraft}
                         />
                     </div>
                 )}
@@ -240,8 +429,10 @@ const AdminDataEntryPage = () => {
                 {activeTab === 'logs' && (
                     <div className="tab-panel">
                         <AuditLogs 
-                            token={token}
-                            apiBaseUrl={apiBaseUrl}
+                            logs={logs}
+                            loading={logsLoading}
+                            filter={logsFilter}
+                            onFilterChange={setLogsFilter}
                         />
                     </div>
                 )}

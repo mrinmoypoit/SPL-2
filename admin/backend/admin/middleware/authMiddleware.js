@@ -33,7 +33,7 @@ exports.authenticateOperator = async (req, res, next) => {
             const operator = result.rows[0];
 
             // Check if operator has required role
-            if (!['admin', 'data_entry_operator'].includes(operator.role)) {
+            if (!['admin', 'data_entry_operator', 'data_entry'].includes(operator.role)) {
                 return res.status(403).json({ error: 'Insufficient permissions' });
             }
 

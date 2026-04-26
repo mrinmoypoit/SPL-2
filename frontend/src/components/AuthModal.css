@@ -146,6 +146,16 @@
   width: 100% !important;
 }
 
+.oauth-warning-message {
+  background: #fff7ed;
+  color: #9a3412;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+  border-left: 4px solid #ea580c;
+}
+
 /* Divider */
 .divider {
   display: flex;

@@ -151,9 +151,11 @@ exports.createOperator = async (req, res) => {
             return res.status(400).json({ error: 'All fields are required' });
         }
 
-        if (!['admin', 'data_entry_operator'].includes(role)) {
+        if (!['admin', 'data_entry_operator', 'data_entry'].includes(role)) {
             return res.status(400).json({ error: 'Invalid role' });
         }
+
+        const normalizedRole = role === 'data_entry_operator' ? 'data_entry' : role;
 
         // Check if email already exists
         const existingOperator = await pool.query(
@@ -172,7 +174,7 @@ exports.createOperator = async (req, res) => {
             `INSERT INTO data_operators (name, email, password_hash, role)
              VALUES ($1, $2, $3, $4)
              RETURNING operator_id, name, email, role, created_at`,
-            [name, email.toLowerCase(), hashedPassword, role]
+            [name, email.toLowerCase(), hashedPassword, normalizedRole]
         );
 
         res.status(201).json({

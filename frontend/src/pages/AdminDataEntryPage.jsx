@@ -4,6 +4,7 @@ import DataEntryForm from '../components/DataEntryForm';
 import ProductsTable from '../components/ProductsTable';
 import AuditLogs from '../components/AuditLogs';
 import DraftsPanel from '../components/DraftsPanel';
+import { getValidAuthToken, clearAuthTokens, isUnauthorizedStatus } from '../utils/admin/authToken';
 
 const AdminDataEntryPage = () => {
     const [activeTab, setActiveTab] = useState('entry');
@@ -25,30 +26,44 @@ const AdminDataEntryPage = () => {
         active_drafts: 0
     });
 
-    const token = localStorage.getItem('adminToken');
-    const apiBaseUrl = 'http://localhost:3000/api';
+    const apiBaseUrl = import.meta.env.VITE_API_URL || '/api';
+    const token = getValidAuthToken();
 
     // Fetch statistics
     useEffect(() => {
+        const token = getValidAuthToken();
         if (token) {
             fetchDashboardStats();
         }
-    }, [token]);
+    }, []);
 
     // Fetch products
     useEffect(() => {
+        const token = getValidAuthToken();
         if (token && activeTab === 'entry') {
             fetchProducts();
         }
-    }, [token, activeTab, filters]);
+    }, [activeTab, filters]);
 
     const fetchDashboardStats = async () => {
+        const token = getValidAuthToken();
+        if (!token) {
+            return;
+        }
+
         try {
             const response = await fetch(`${apiBaseUrl}/admin/operators/dashboard/stats`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
             });
+
+            if (isUnauthorizedStatus(response.status)) {
+                clearAuthTokens();
+                setError('Session expired. Please log in again.');
+                window.location.href = '/';
+                return;
+            }
 
             if (response.ok) {
                 const data = await response.json();
@@ -60,6 +75,12 @@ const AdminDataEntryPage = () => {
     };
 
     const fetchProducts = async () => {
+        const token = getValidAuthToken();
+        if (!token) {
+            setError('Session expired. Please log in again.');
+            return;
+        }
+
         setLoading(true);
         try {
             let url = `${apiBaseUrl}/admin/products?limit=20&offset=0`;
@@ -73,9 +94,16 @@ const AdminDataEntryPage = () => {
                 }
             });
 
+            if (isUnauthorizedStatus(response.status)) {
+                clearAuthTokens();
+                setError('Session expired. Please log in again.');
+                window.location.href = '/';
+                return;
+            }
+
             if (response.ok) {
                 const data = await response.json();
-                setProducts(data.data);
+                setProducts(data.products || data.data || []);
             } else {
                 setError('Failed to fetch products');
             }
@@ -100,6 +128,12 @@ const AdminDataEntryPage = () => {
     };
 
     const handleDeleteProduct = async (productId) => {
+        const token = getValidAuthToken();
+        if (!token) {
+            setError('Session expired. Please log in again.');
+            return;
+        }
+
         if (window.confirm('Are you sure you want to delete this product?')) {
             try {
                 const response = await fetch(`${apiBaseUrl}/admin/products/${productId}`, {
@@ -108,6 +142,13 @@ const AdminDataEntryPage = () => {
                         'Authorization': `Bearer ${token}`
                     }
                 });
+
+                if (isUnauthorizedStatus(response.status)) {
+                    clearAuthTokens();
+                    setError('Session expired. Please log in again.');
+                    window.location.href = '/';
+                    return;
+                }
 
                 if (response.ok) {
                     setSuccessMessage('Product deleted successfully');

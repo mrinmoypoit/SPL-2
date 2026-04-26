@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import './AdminLoginPage.css'
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
+
 function AdminLoginPage({ onLoginSuccess }) {
   const [email, setEmail] = useState('admin@tulona.com')
   const [password, setPassword] = useState('admin123')
@@ -13,7 +15,7 @@ function AdminLoginPage({ onLoginSuccess }) {
     setError('')
 
     try {
-      const response = await fetch('http://localhost:3000/api/admin/operators/login', {
+      const response = await fetch(`${API_BASE_URL}/admin/operators/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
