@@ -141,3 +141,104 @@ export const notificationsAPI = {
     return handleResponse(response);
   }
 };
+
+export const aiAPI = {
+  ask: async (question, context = {}) => {
+    const response = await fetch(`${API_BASE_URL}/ai/ask`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ question, ...context })
+    });
+    return handleResponse(response);
+  },
+
+  askStream: async (
+    question,
+    {
+      context = {},
+      onMeta,
+      onChunk,
+      onDone,
+      onError
+    } = {}
+  ) => {
+    const response = await fetch(`${API_BASE_URL}/ai/ask/stream`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ question, ...context })
+    });
+
+    if (!response.ok || !response.body) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to open AI stream');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+
+    let buffer = '';
+    let donePayload = null;
+
+    const processEventBlock = (eventBlock) => {
+      if (!eventBlock || !eventBlock.trim()) {
+        return;
+      }
+
+      const lines = eventBlock.split('\n');
+      let eventName = 'message';
+      const dataLines = [];
+
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          eventName = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          dataLines.push(line.slice(5).trim());
+        }
+      }
+
+      const rawData = dataLines.join('\n');
+      const payload = rawData ? JSON.parse(rawData) : {};
+
+      if (eventName === 'meta') {
+        onMeta?.(payload);
+        return;
+      }
+
+      if (eventName === 'chunk') {
+        onChunk?.(payload);
+        return;
+      }
+
+      if (eventName === 'done') {
+        donePayload = payload;
+        onDone?.(payload);
+        return;
+      }
+
+      if (eventName === 'error') {
+        const streamError = new Error(payload.error || 'AI stream failed');
+        onError?.(streamError, payload);
+        throw streamError;
+      }
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let separatorIndex = buffer.indexOf('\n\n');
+      while (separatorIndex !== -1) {
+        const eventBlock = buffer.slice(0, separatorIndex);
+        buffer = buffer.slice(separatorIndex + 2);
+        processEventBlock(eventBlock);
+        separatorIndex = buffer.indexOf('\n\n');
+      }
+    }
+
+    return donePayload;
+  }
+};

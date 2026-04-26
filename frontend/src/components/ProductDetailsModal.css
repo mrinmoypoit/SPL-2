@@ -219,6 +219,21 @@
   word-break: break-word;
 }
 
+.detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.detail-list-item {
+  line-height: 1.4;
+}
+
+.detail-sub-key {
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 600;
+}
+
 /* Modal Footer */
 .modal-footer {
   padding: 1.5rem 2rem;

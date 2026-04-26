@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import './Chatbot.css'
+import { aiAPI } from '../services/api'
 
 function Chatbot() {
   const [isOpen, setIsOpen] = useState(false)
@@ -12,6 +13,7 @@ function Chatbot() {
     }
   ])
   const [inputMessage, setInputMessage] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = () => {
@@ -22,54 +24,132 @@ function Chatbot() {
     scrollToBottom()
   }, [messages])
 
-  const handleSendMessage = (e) => {
-    e.preventDefault()
-    if (!inputMessage.trim()) return
+  const createMessage = (type, text) => ({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    type,
+    text,
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  })
 
-    const userMessage = {
-      id: messages.length + 1,
-      type: 'user',
-      text: inputMessage,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
+  const createStreamingBotMessage = () => {
+    const messageId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
-    setMessages([...messages, userMessage])
-    setInputMessage('')
-
-    // Simulate bot response
-    setTimeout(() => {
-      const botResponse = {
-        id: messages.length + 2,
+    setMessages(prev => [
+      ...prev,
+      {
+        id: messageId,
         type: 'bot',
-        text: getBotResponse(inputMessage),
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        text: '',
+        time,
+        isStreaming: true
       }
-      setMessages(prev => [...prev, botResponse])
-    }, 1000)
+    ])
+
+    return messageId
   }
 
-  const getBotResponse = (message) => {
-    const lowerMessage = message.toLowerCase()
-    
-    if (lowerMessage.includes('loan') || lowerMessage.includes('credit')) {
-      return 'I can help you compare loans and credit cards! Would you like to see our best offers? We have options for personal loans, home loans, and credit cards with great rewards.'
-    } else if (lowerMessage.includes('bank') || lowerMessage.includes('deposit')) {
-      return 'Looking for banking services? I can help you compare deposit rates, account types, and find the best bank for your needs. What specific service are you interested in?'
-    } else if (lowerMessage.includes('telecom') || lowerMessage.includes('mobile')) {
-      return 'I can help you find the perfect mobile plan! We compare plans from all major telecom providers. What\'s your monthly usage like?'
-    } else if (lowerMessage.includes('help') || lowerMessage.includes('guide')) {
-      return 'I\'m here to help! You can ask me about:\n• Credit cards and loans\n• Bank accounts and deposits\n• Mobile and telecom plans\n• Personalized recommendations\n\nWhat would you like to know more about?'
-    } else {
-      return 'Thank you for your message! Our AI is learning to provide better responses. In the meantime, you can explore our comparison tools for banking and telecom services. Is there anything specific I can help you with?'
+  const appendToBotMessage = (messageId, chunkText) => {
+    setMessages(prev =>
+      prev.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              text: `${message.text || ''}${chunkText || ''}`,
+              isStreaming: true
+            }
+          : message
+      )
+    )
+  }
+
+  const finalizeBotMessage = (messageId, options = {}) => {
+    const { finalText, fallbackText = 'I could not generate a response. Please try again.' } = options
+
+    setMessages(prev =>
+      prev.map((message) => {
+        if (message.id !== messageId) {
+          return message
+        }
+
+        const resolvedText = String(finalText ?? message.text ?? '').trim() || fallbackText
+
+        return {
+          ...message,
+          text: resolvedText,
+          isStreaming: false
+        }
+      })
+    )
+  }
+
+  const sendToAssistant = async (question) => {
+    setIsLoading(true)
+    const streamMessageId = createStreamingBotMessage()
+    let streamHasChunks = false
+
+    try {
+      const donePayload = await aiAPI.askStream(question, {
+        onChunk: (payload) => {
+          streamHasChunks = true
+          appendToBotMessage(streamMessageId, payload?.text || '')
+        },
+        onDone: (payload) => {
+          if (!streamHasChunks && payload?.answer) {
+            finalizeBotMessage(streamMessageId, { finalText: payload.answer })
+          }
+        }
+      })
+
+      finalizeBotMessage(streamMessageId, {
+        finalText: donePayload?.answer,
+        fallbackText: 'I could not generate an answer right now. Please try again.'
+      })
+    } catch (error) {
+      try {
+        const response = await aiAPI.ask(question)
+        const answerText = response?.answer || 'I could not generate an answer right now. Please try again.'
+        finalizeBotMessage(streamMessageId, { finalText: answerText })
+      } catch (fallbackError) {
+        const mergedError = fallbackError?.message || error?.message || ''
+        finalizeBotMessage(streamMessageId, {
+          finalText: `Sorry, I could not reach the AI service right now. ${mergedError}`.trim(),
+          fallbackText: 'Sorry, I could not reach the AI service right now.'
+        })
+      }
+    } finally {
+      setIsLoading(false)
     }
+  }
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault()
+    if (!inputMessage.trim() || isLoading) return
+
+    const question = inputMessage.trim()
+    const userMessage = createMessage('user', question)
+
+    setMessages(prev => [...prev, userMessage])
+    setInputMessage('')
+    await sendToAssistant(question)
   }
 
   const quickActions = [
-    { icon: 'fa-credit-card', text: 'Find Credit Cards' },
-    { icon: 'fa-hand-holding-usd', text: 'Compare Loans' },
-    { icon: 'fa-mobile-alt', text: 'Mobile Plans' },
-    { icon: 'fa-piggy-bank', text: 'Best Deposits' }
+    { icon: 'fa-credit-card', text: 'Find the best credit cards under 3000 annual fee' },
+    { icon: 'fa-hand-holding-usd', text: 'Compare personal loans with low interest' },
+    { icon: 'fa-mobile-alt', text: 'Suggest best telecom data plans for heavy use' },
+    { icon: 'fa-piggy-bank', text: 'Best deposits for secure long term savings' }
   ]
+
+  const handleQuickAction = async (text) => {
+    if (isLoading) return
+    const userMessage = createMessage('user', text)
+    setMessages(prev => [...prev, userMessage])
+    setInputMessage('')
+    await sendToAssistant(text)
+  }
+
+  const hasStreamingMessage = messages.some((message) => message.type === 'bot' && message.isStreaming)
 
   return (
     <>
@@ -99,12 +179,22 @@ function Chatbot() {
                     <i className="fas fa-robot"></i>
                   </div>
                 )}
-                <div className="message-content">
+                <div className={`message-content ${message.isStreaming ? 'message-streaming' : ''}`}>
                   <p>{message.text}</p>
                   <span className="message-time">{message.time}</span>
                 </div>
               </div>
             ))}
+            {isLoading && !hasStreamingMessage && (
+              <div className="message bot">
+                <div className="message-avatar">
+                  <i className="fas fa-robot"></i>
+                </div>
+                <div className="message-content message-loading">
+                  <p>Thinking with database context...</p>
+                </div>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
 
@@ -113,7 +203,8 @@ function Chatbot() {
               <button
                 key={index}
                 className="quick-action-btn"
-                onClick={() => setInputMessage(action.text)}
+                onClick={() => handleQuickAction(action.text)}
+                disabled={isLoading}
               >
                 <i className={`fas ${action.icon}`}></i>
                 <span>{action.text}</span>
@@ -126,9 +217,10 @@ function Chatbot() {
               type="text"
               placeholder="Type your message..."
               value={inputMessage}
+              disabled={isLoading}
               onChange={(e) => setInputMessage(e.target.value)}
             />
-            <button type="submit">
+            <button type="submit" disabled={isLoading || !inputMessage.trim()}>
               <i className="fas fa-paper-plane"></i>
             </button>
           </form>

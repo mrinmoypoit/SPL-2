@@ -222,6 +222,26 @@
   white-space: pre-line;
 }
 
+.message-streaming p::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 3px;
+  background: #0f172a;
+  vertical-align: text-bottom;
+  animation: streamCursorBlink 0.8s steps(1, end) infinite;
+}
+
+@keyframes streamCursorBlink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}
+
 .message-time {
   font-size: 0.7rem;
   opacity: 0.6;
@@ -258,6 +278,12 @@
 .quick-action-btn:hover {
   background: linear-gradient(135deg, rgba(0, 102, 204, 0.15), rgba(0, 212, 255, 0.15));
   transform: translateY(-2px);
+}
+
+.quick-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .quick-action-btn i {
@@ -306,6 +332,21 @@
 .chatbot-input button:hover {
   transform: scale(1.1);
   box-shadow: 0 4px 15px rgba(0, 102, 204, 0.3);
+}
+
+.chatbot-input input:disabled,
+.chatbot-input button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.chatbot-input button:disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.message-loading {
+  border-left: 3px solid #00a3ff;
 }
 
 /* Scrollbar */

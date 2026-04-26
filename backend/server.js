@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const bcryptjs = require('bcryptjs');
 const { pool } = require('./config/database');
 const { sendOTPEmail, sendWelcomeEmail, sendPasswordResetConfirmation } = require('./services/emailService');
+const { generateGroundedAiAnswer } = require('./services/aiAnswerService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -655,6 +656,446 @@ app.post('/api/recommendations', recommendationsHandler);
 app.get('/api/recommendations', recommendationsHandler);
 app.post('/recommendations', recommendationsHandler);
 app.get('/recommendations', recommendationsHandler);
+
+const AI_STOP_WORDS = new Set([
+    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'best', 'by', 'can', 'for', 'from', 'get', 'give', 'help', 'i', 'in',
+    'is', 'it', 'me', 'my', 'of', 'on', 'or', 'please', 'recommend', 'show', 'suggest', 'that', 'the', 'to', 'want', 'with'
+]);
+
+const CATEGORY_KEYWORDS = {
+    loans: ['loan', 'loans', 'emi', 'home loan', 'personal loan', 'car loan'],
+    'credit cards': ['credit card', 'credit cards', 'card', 'visa', 'mastercard'],
+    deposits: ['deposit', 'fd', 'fdr', 'fixed deposit', 'savings', 'dps'],
+    'bank accounts': ['account', 'bank account', 'current account', 'student account'],
+    telecom: ['mobile', 'sim', 'internet', 'telecom', 'data plan']
+};
+
+const normalizeQuestion = (value = '') => String(value).trim().toLowerCase();
+
+const tokenizeQuestion = (question = '') => {
+    return normalizeQuestion(question)
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((token) => token.length >= 2 && !AI_STOP_WORDS.has(token));
+};
+
+const detectCategoryFromQuestion = (question = '') => {
+    const normalized = normalizeQuestion(question);
+
+    for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+        if (keywords.some((keyword) => normalized.includes(keyword))) {
+            return category;
+        }
+    }
+
+    return null;
+};
+
+const extractBudgetConstraint = (question = '') => {
+    const normalized = normalizeQuestion(question).replace(/,/g, '');
+    const underMatch = normalized.match(/(?:under|below|less than|max|maximum|within)\s*(?:tk|bdt|৳|\$)?\s*(\d+(?:\.\d+)?)/i);
+    if (underMatch) {
+        return { max: Number.parseFloat(underMatch[1]), type: 'max' };
+    }
+
+    const overMatch = normalized.match(/(?:above|over|more than|min|minimum)\s*(?:tk|bdt|৳|\$)?\s*(\d+(?:\.\d+)?)/i);
+    if (overMatch) {
+        return { min: Number.parseFloat(overMatch[1]), type: 'min' };
+    }
+
+    const rangeMatch = normalized.match(/(?:between)\s*(\d+(?:\.\d+)?)\s*(?:and|-)\s*(\d+(?:\.\d+)?)/i);
+    if (rangeMatch) {
+        const firstValue = Number.parseFloat(rangeMatch[1]);
+        const secondValue = Number.parseFloat(rangeMatch[2]);
+        return {
+            min: Math.min(firstValue, secondValue),
+            max: Math.max(firstValue, secondValue),
+            type: 'range'
+        };
+    }
+
+    return null;
+};
+
+const getNumericValueFromText = (value = '') => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+
+    const match = String(value).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+    if (!match) {
+        return null;
+    }
+
+    const parsed = Number.parseFloat(match[0]);
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+const parseCompanyMetrics = (value = null) => {
+    if (!value) {
+        return {};
+    }
+
+    if (typeof value === 'object' && !Array.isArray(value)) {
+        return value;
+    }
+
+    try {
+        const parsed = JSON.parse(String(value));
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+};
+
+const PRICE_LIKE_ATTRIBUTE_NAMES = [
+    'price', 'fee', 'cost', 'charge', 'monthly', 'annual', 'interest', 'installment', 'emi', 'minimum_balance'
+];
+
+const extractBudgetRelevantValues = (attributes = []) => {
+    if (!Array.isArray(attributes)) {
+        return [];
+    }
+
+    const values = [];
+
+    for (const attribute of attributes) {
+        const name = normalizeAttributeKey(attribute?.attribute_name || '');
+        const value = attribute?.attribute_value;
+
+        if (!name || value === null || value === undefined || value === '') {
+            continue;
+        }
+
+        const isBudgetLike = PRICE_LIKE_ATTRIBUTE_NAMES.some((keyword) => name.includes(keyword));
+        if (!isBudgetLike) {
+            continue;
+        }
+
+        const numericValue = getNumericValueFromText(value);
+        if (numericValue !== null) {
+            values.push(numericValue);
+        }
+    }
+
+    return values;
+};
+
+const buildProductSearchText = (product = {}) => {
+    const attributeText = (product.attributes || [])
+        .map((attribute) => `${attribute?.attribute_name || ''} ${attribute?.attribute_value || ''}`)
+        .join(' ');
+
+    return [
+        product.name,
+        product.description,
+        product.company,
+        product.category,
+        product.parent_category,
+        attributeText
+    ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+};
+
+const scoreProductForQuestion = ({ product, questionTokens, preferredCategory, budgetConstraint }) => {
+    let score = 0;
+    const reasons = [];
+
+    const searchableText = buildProductSearchText(product);
+
+    if (preferredCategory) {
+        const categoryText = `${product.category || ''} ${product.parent_category || ''}`.toLowerCase();
+        if (categoryText.includes(preferredCategory.toLowerCase())) {
+            score += 5;
+            reasons.push(`matches ${preferredCategory} category`);
+        }
+    }
+
+    for (const token of questionTokens) {
+        if (searchableText.includes(token)) {
+            score += token.length >= 5 ? 2 : 1;
+        }
+    }
+
+    const budgetValues = extractBudgetRelevantValues(product.attributes || []);
+    if (budgetConstraint && budgetValues.length > 0) {
+        const minValue = Math.min(...budgetValues);
+
+        if (budgetConstraint.type === 'max' && minValue <= budgetConstraint.max) {
+            score += 4;
+            reasons.push(`fits budget (≈ ${minValue})`);
+        } else if (budgetConstraint.type === 'min' && minValue >= budgetConstraint.min) {
+            score += 4;
+            reasons.push(`meets minimum budget level (≈ ${minValue})`);
+        } else if (
+            budgetConstraint.type === 'range' &&
+            minValue >= budgetConstraint.min &&
+            minValue <= budgetConstraint.max
+        ) {
+            score += 4;
+            reasons.push(`in your budget range (≈ ${minValue})`);
+        }
+    }
+
+    const featureBonus = (product.features || []).length;
+    if (featureBonus > 0) {
+        score += Math.min(featureBonus, 3);
+    }
+
+    const ratingValue = getNumericValueFromText(product.rating);
+    if (ratingValue !== null) {
+        score += Math.max(0, Math.min(ratingValue, 5) - 3) * 0.8;
+        if (ratingValue >= 4.2) {
+            reasons.push(`strong rating (${ratingValue})`);
+        }
+    }
+
+    return {
+        ...product,
+        score,
+        reasons
+    };
+};
+
+const formatProductLine = (product = {}, index = 0) => {
+    const featureText = (product.features || []).slice(0, 2).join(', ');
+    const reasonText = (product.reasons || []).slice(0, 2).join('; ');
+    const ratingValue = getNumericValueFromText(product.rating);
+    const details = [
+        product.company ? `Company: ${product.company}` : null,
+        product.category ? `Category: ${product.category}` : null,
+        ratingValue !== null ? `Rating: ${ratingValue}` : null,
+        featureText ? `Key features: ${featureText}` : null,
+        reasonText ? `Why: ${reasonText}` : null
+    ].filter(Boolean);
+
+    return `${index + 1}. ${product.name}\n   ${details.join(' | ')}`;
+};
+
+const buildAiRecommendationText = ({ question, rankedProducts, preferredCategory, budgetConstraint }) => {
+    if (!rankedProducts.length) {
+        return `I could not find a strong match for "${question}" from the current database. Try asking with a category (loan, credit card, deposit) and a budget (for example: "best credit card under 3000").`;
+    }
+
+    const introParts = ['I checked your question against the current product database'];
+    if (preferredCategory) {
+        introParts.push(`focused on ${preferredCategory}`);
+    }
+    if (budgetConstraint?.max) {
+        introParts.push(`with budget up to ${budgetConstraint.max}`);
+    }
+    if (budgetConstraint?.min && !budgetConstraint?.max) {
+        introParts.push(`with budget from ${budgetConstraint.min}`);
+    }
+
+    const lines = rankedProducts.slice(0, 3).map((product, index) => formatProductLine(product, index));
+
+    return `${introParts.join(' ')}. Here are the top matches:\n\n${lines.join('\n\n')}\n\nIf you share your monthly income and exact needs, I can narrow this down further.`;
+};
+
+const getAiResponsePayload = async ({ question, limit = 60 }) => {
+    if (!question || !String(question).trim()) {
+        const validationError = new Error('Question is required');
+        validationError.statusCode = 400;
+        throw validationError;
+    }
+
+    const safeLimit = Math.max(10, Math.min(Number.parseInt(limit, 10) || 60, 200));
+    const preferredCategory = detectCategoryFromQuestion(question);
+    const budgetConstraint = extractBudgetConstraint(question);
+    const questionTokens = tokenizeQuestion(question);
+
+    let productQuery = `
+        SELECT
+            p.product_id as id,
+            p.name,
+            p.description,
+            c.name as company,
+            sc.name as category,
+            cat.name as parent_category,
+            c.metrics,
+            COALESCE(
+                json_agg(
+                    json_build_object(
+                        'attribute_name', pa.attribute_name,
+                        'attribute_value', pa.attribute_value,
+                        'attribute_type', pa.attribute_type
+                    )
+                ) FILTER (WHERE pa.attribute_id IS NOT NULL),
+                '[]'::json
+            ) as attributes
+        FROM products p
+        LEFT JOIN companies c ON p.company_id = c.company_id
+        LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.subcategory_id
+        LEFT JOIN category cat ON sc.category_id = cat.category_id
+        LEFT JOIN product_attributes pa ON p.product_id = pa.product_id
+        WHERE 1=1
+    `;
+    const params = [];
+
+    productQuery += ` GROUP BY p.product_id, c.name, c.metrics, sc.name, cat.name ORDER BY p.product_id DESC LIMIT $${params.length + 1}`;
+    params.push(safeLimit);
+
+    const result = await pool.query(productQuery, params);
+
+    const scored = result.rows
+        .map((product) => {
+            const features = extractProductFeatures(product.attributes || []);
+            const metricsObject = parseCompanyMetrics(product.metrics);
+            const rating = getNumericValueFromText(metricsObject?.rating);
+            return scoreProductForQuestion({
+                product: {
+                    ...product,
+                    rating,
+                    features,
+                    attributes: product.attributes || []
+                },
+                questionTokens,
+                preferredCategory,
+                budgetConstraint
+            });
+        })
+        .sort((first, second) => second.score - first.score);
+
+    const rankedProducts = scored.filter((product) => product.score > 0).slice(0, 5);
+    const fallbackAnswer = buildAiRecommendationText({
+        question,
+        rankedProducts,
+        preferredCategory,
+        budgetConstraint
+    });
+
+    const aiResult = await generateGroundedAiAnswer({
+        question,
+        rankedProducts,
+        metadata: {
+            preferredCategory,
+            budgetConstraint
+        },
+        fallbackAnswer
+    });
+
+    return {
+        answer: aiResult.answer,
+        recommendations: rankedProducts,
+        metadata: {
+            preferredCategory,
+            budgetConstraint,
+            evaluatedProducts: result.rows.length,
+            source: aiResult.source,
+            providerUsed: aiResult.providerUsed,
+            modelUsed: aiResult.modelUsed,
+            llmError: aiResult.error || null
+        }
+    };
+};
+
+const aiAskHandler = async (req, res) => {
+    try {
+        const { question, limit = 60 } = req.body || {};
+        const payload = await getAiResponsePayload({ question, limit });
+        return res.json(payload);
+    } catch (error) {
+        if (error.statusCode) {
+            return res.status(error.statusCode).json({ error: error.message });
+        }
+
+        console.error('AI assistant error:', error);
+        return res.status(500).json({ error: 'Failed to generate AI response' });
+    }
+};
+
+const writeSseEvent = (res, eventName, payload) => {
+    res.write(`event: ${eventName}\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+};
+
+const streamAnswerChunks = ({ res, text, onDone, onAbort }) => {
+    const tokens = String(text || '').split(/(\s+)/).filter(Boolean);
+
+    if (!tokens.length) {
+        onDone();
+        return { stop: () => {} };
+    }
+
+    let index = 0;
+    let stopped = false;
+
+    const intervalId = setInterval(() => {
+        if (stopped) {
+            return;
+        }
+
+        const token = tokens[index] || '';
+        writeSseEvent(res, 'chunk', { text: token });
+        index += 1;
+
+        if (index >= tokens.length) {
+            clearInterval(intervalId);
+            onDone();
+        }
+    }, 22);
+
+    const stop = () => {
+        if (stopped) {
+            return;
+        }
+
+        stopped = true;
+        clearInterval(intervalId);
+        if (typeof onAbort === 'function') {
+            onAbort();
+        }
+    };
+
+    return { stop };
+};
+
+const aiAskStreamHandler = async (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    try {
+        const { question, limit = 60 } = req.body || {};
+        const payload = await getAiResponsePayload({ question, limit });
+
+        writeSseEvent(res, 'meta', {
+            metadata: payload.metadata,
+            recommendations: payload.recommendations
+        });
+
+        const streamController = streamAnswerChunks({
+            res,
+            text: payload.answer,
+            onDone: () => {
+                writeSseEvent(res, 'done', payload);
+                res.end();
+            }
+        });
+
+        req.on('close', () => {
+            streamController.stop();
+        });
+    } catch (error) {
+        const statusCode = error.statusCode || 500;
+
+        writeSseEvent(res, 'error', {
+            error: error.message || 'Failed to stream AI response',
+            statusCode
+        });
+
+        res.end();
+    }
+};
+
+app.post('/api/ai/ask', aiAskHandler);
+app.post('/ai/ask', aiAskHandler);
+app.post('/api/ai/ask/stream', aiAskStreamHandler);
+app.post('/ai/ask/stream', aiAskStreamHandler);
 
 // Get Single Product
 app.get('/api/products/:id', async (req, res) => {

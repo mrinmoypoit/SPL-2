@@ -1,6 +1,117 @@
 import React from 'react'
 import './ProductDetailsModal.css'
 
+const formatKeyLabel = (value = '') =>
+  String(value)
+    .replace(/_/g, ' ')
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const parseStructuredValue = (value) => {
+  if (typeof value !== 'string') {
+    return value
+  }
+
+  const trimmedValue = value.trim()
+  if (!trimmedValue) {
+    return value
+  }
+
+  if ((trimmedValue.startsWith('{') && trimmedValue.endsWith('}')) || (trimmedValue.startsWith('[') && trimmedValue.endsWith(']'))) {
+    try {
+      return JSON.parse(trimmedValue)
+    } catch {
+      return value
+    }
+  }
+
+  return value
+}
+
+const formatPrimitiveValue = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return 'N/A'
+  }
+
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? value.toLocaleString() : value
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'Yes' : 'No'
+  }
+
+  return String(value)
+}
+
+const renderStructuredDetails = (value, keyPrefix = '') => {
+  if (Array.isArray(value)) {
+    const attributeRows = value
+      .map((item, index) => {
+        if (item && typeof item === 'object') {
+          const attributeName = item.attribute_name || item.name
+          const attributeValue = item.attribute_value ?? item.value
+
+          if (attributeName && attributeValue !== undefined && attributeValue !== null && attributeValue !== '') {
+            return {
+              id: `${keyPrefix}-${attributeName}-${index}`,
+              label: formatKeyLabel(attributeName),
+              value: formatPrimitiveValue(attributeValue)
+            }
+          }
+        }
+
+        if (item === null || item === undefined || item === '') {
+          return null
+        }
+
+        return {
+          id: `${keyPrefix}-${index}`,
+          label: `Item ${index + 1}`,
+          value: formatPrimitiveValue(item)
+        }
+      })
+      .filter(Boolean)
+
+    if (attributeRows.length > 0) {
+      return (
+        <div className="detail-list">
+          {attributeRows.map((row) => (
+            <div key={row.id} className="detail-list-item">
+              <span className="detail-sub-key">{row.label}:</span> {row.value}
+            </div>
+          ))}
+        </div>
+      )
+    }
+  }
+
+  if (value && typeof value === 'object') {
+    const objectRows = Object.entries(value)
+      .filter(([, nestedValue]) => nestedValue !== null && nestedValue !== undefined && nestedValue !== '')
+      .map(([nestedKey, nestedValue]) => ({
+        id: `${keyPrefix}-${nestedKey}`,
+        label: formatKeyLabel(nestedKey),
+        value: formatPrimitiveValue(nestedValue)
+      }))
+
+    if (objectRows.length > 0) {
+      return (
+        <div className="detail-list">
+          {objectRows.map((row) => (
+            <div key={row.id} className="detail-list-item">
+              <span className="detail-sub-key">{row.label}:</span> {row.value}
+            </div>
+          ))}
+        </div>
+      )
+    }
+  }
+
+  return null
+}
+
 function ProductDetailsModal({ isOpen, product, onClose }) {
   if (!isOpen || !product) return null
 
@@ -101,17 +212,20 @@ function ProductDetailsModal({ isOpen, product, onClose }) {
               <h3 className="section-title">Additional Details</h3>
               <div className="additional-details">
                 {Object.entries(otherDetails)
-                  .filter(([key, value]) => value && key !== 'productId' && key !== 'product_id')
-                  .map(([key, value]) => (
-                    <div key={key} className="detail-row">
-                      <span className="detail-key">
-                        {key.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim()}
-                      </span>
-                      <span className="detail-value">
-                        {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                      </span>
-                    </div>
-                  ))}
+                  .filter(([key, value]) => value !== null && value !== undefined && value !== '' && key !== 'productId' && key !== 'product_id')
+                  .map(([key, value]) => {
+                    const parsedValue = parseStructuredValue(value)
+                    const formattedStructuredValue = renderStructuredDetails(parsedValue, key)
+
+                    return (
+                      <div key={key} className="detail-row">
+                        <span className="detail-key">{formatKeyLabel(key)}</span>
+                        <span className="detail-value">
+                          {formattedStructuredValue || formatPrimitiveValue(parsedValue)}
+                        </span>
+                      </div>
+                    )
+                  })}
               </div>
             </section>
           )}
