@@ -9,6 +9,12 @@
   animation: slideDown 0.3s ease-out;
 }
 
+.product-filter-highlight {
+  border-color: rgba(0, 212, 255, 0.75);
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.25);
+  animation: slideDown 0.3s ease-out, highlightPulse 1.6s ease-in-out 2;
+}
+
 @keyframes slideDown {
   from {
     opacity: 0;
@@ -17,6 +23,15 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes highlightPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(0, 212, 255, 0.4);
   }
 }
 
@@ -42,6 +57,16 @@
 .filter-title i {
   color: #00d4ff;
   font-size: 1.1rem;
+}
+
+.filter-tip-note {
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  background: rgba(0, 212, 255, 0.14);
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  color: #d9f4ff;
+  font-size: 0.85rem;
 }
 
 .filter-reset-btn {

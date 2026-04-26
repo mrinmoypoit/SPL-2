@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { userAPI } from '../services/api'
 import Navbar from '../components/Navbar'
 import './ProfilePage.css'
 
@@ -8,6 +9,9 @@ function ProfilePage() {
   const navigate = useNavigate()
   const { user, updateProfile } = useAuth()
   const [isEditing, setIsEditing] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [saveSuccess, setSaveSuccess] = useState('')
   const [formData, setFormData] = useState({
     name: user?.name || '',
     email: user?.email || '',
@@ -17,13 +21,33 @@ function ProfilePage() {
   })
 
   const handleInputChange = (e) => {
+    setSaveError('')
+    setSaveSuccess('')
     setFormData({ ...formData, [e.target.name]: e.target.value })
   }
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault()
-    updateProfile(formData)
-    setIsEditing(false)
+    setIsSaving(true)
+    setSaveError('')
+    setSaveSuccess('')
+
+    try {
+      const response = await userAPI.updateProfile({
+        name: formData.name,
+        phone: formData.phone,
+        profession: formData.profession,
+        monthlyIncome: formData.monthlyIncome === '' ? null : Number(formData.monthlyIncome)
+      })
+
+      updateProfile(response?.user || formData)
+      setSaveSuccess('Profile updated successfully')
+      setIsEditing(false)
+    } catch (error) {
+      setSaveError(error?.message || 'Failed to update profile')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -50,6 +74,9 @@ function ProfilePage() {
           </div>
 
           <div className="profile-form-section">
+            {saveError && <div className="error-message">{saveError}</div>}
+            {saveSuccess && <div className="success-message">{saveSuccess}</div>}
+
             {!isEditing ? (
               <div className="profile-info">
                 <button className="edit-btn" onClick={() => setIsEditing(true)}>
@@ -90,9 +117,9 @@ function ProfilePage() {
                   <button type="button" className="cancel-btn" onClick={() => setIsEditing(false)}>
                     Cancel
                   </button>
-                  <button type="submit" className="save-btn">
+                  <button type="submit" className="save-btn" disabled={isSaving}>
                     <i className="fas fa-check"></i>
-                    <span>Save Changes</span>
+                    <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
                   </button>
                 </div>
 

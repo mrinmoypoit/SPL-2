@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { authAPI, otpAPI } from '../services/api'
 import { GoogleLogin } from '@react-oauth/google'
+import { isGoogleOAuthConfigured } from '../utils/googleOAuth'
 import './AuthModal.css'
 
 function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
   const { login } = useAuth()
-  const rawGoogleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim()
-  const isGoogleOAuthConfigured = Boolean(rawGoogleClientId) && !rawGoogleClientId.startsWith('YOUR_')
+  const googleOAuthConfigured = isGoogleOAuthConfigured()
   const [mode, setMode] = useState(initialMode) // 'login', 'signup', 'forgot'
   const [step, setStep] = useState(1) // For multi-step forms
   const [loading, setLoading] = useState(false)
@@ -97,7 +97,7 @@ function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
             <h2>Welcome Back!</h2>
             <p className="auth-subtitle">Sign in to access your account</p>
 
-            {isGoogleOAuthConfigured ? (
+            {googleOAuthConfigured ? (
               <>
                 <div className="google-login-wrapper">
                   <GoogleLogin
@@ -114,7 +114,7 @@ function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
               </>
             ) : (
               <div className="oauth-warning-message">
-                Google sign-in is unavailable. Set `VITE_GOOGLE_CLIENT_ID` in `frontend/.env`.
+                Google sign-in is unavailable. Set `VITE_GOOGLE_CLIENT_ID` in `frontend/.env` and restart the frontend server.
               </div>
             )}
 
@@ -188,7 +188,7 @@ function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
             <h2>Create Account</h2>
             <p className="auth-subtitle">Start your journey with TULONA</p>
 
-            {isGoogleOAuthConfigured ? (
+            {googleOAuthConfigured ? (
               <>
                 <div className="google-login-wrapper">
                   <GoogleLogin
@@ -205,7 +205,7 @@ function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
               </>
             ) : (
               <div className="oauth-warning-message">
-                Google sign-up is unavailable. Set `VITE_GOOGLE_CLIENT_ID` in `frontend/.env`.
+                Google sign-up is unavailable. Set `VITE_GOOGLE_CLIENT_ID` in `frontend/.env` and restart the frontend server.
               </div>
             )}
 
@@ -427,7 +427,7 @@ function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
                   email: formData.email,
                   phone: formData.phone,
                   profession: formData.profession,
-                  income: formData.monthlyIncome,
+                  monthlyIncome: formData.monthlyIncome,
                   password: formData.password
                 })
                 localStorage.setItem('token', response.token)

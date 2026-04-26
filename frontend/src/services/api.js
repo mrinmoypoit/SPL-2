@@ -139,6 +139,14 @@ export const notificationsAPI = {
       headers: getAuthHeaders()
     });
     return handleResponse(response);
+  },
+
+  markAllAsRead: async () => {
+    const response = await fetch(`${API_BASE_URL}/notifications/read-all`, {
+      method: 'PUT',
+      headers: getAuthHeaders()
+    });
+    return handleResponse(response);
   }
 };
 

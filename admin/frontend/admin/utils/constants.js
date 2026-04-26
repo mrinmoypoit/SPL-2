@@ -1,7 +1,8 @@
 // Admin System Constants
+import { getApiBaseUrl } from '../../src/utils/apiBase';
 
 // API Configuration
-export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+export const API_BASE_URL = getApiBaseUrl();
 export const API_ENDPOINTS = {
     PRODUCTS: '/admin/products',
     DRAFTS: '/admin/drafts',

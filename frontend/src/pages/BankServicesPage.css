@@ -511,7 +511,8 @@
 
 /* Product Actions Buttons */
 .bank-product-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.8rem;
   margin-top: 1rem;
   padding-top: 1rem;
@@ -519,7 +520,8 @@
 }
 
 .btn-details,
-.btn-compare {
+.btn-compare,
+.btn-apply {
   flex: 1;
   padding: 0.6rem 1rem;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -560,9 +562,30 @@
   box-shadow: 0 4px 12px rgba(76, 175, 80, 0.2);
 }
 
+.btn-apply {
+  background: rgba(255, 152, 0, 0.15);
+  color: #ffd9a1;
+  border-color: rgba(255, 152, 0, 0.4);
+}
+
+.btn-apply:hover {
+  background: rgba(255, 152, 0, 0.3);
+  border-color: rgba(255, 152, 0, 0.6);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 152, 0, 0.2);
+}
+
 .btn-details i,
-.btn-compare i {
+.btn-compare i,
+.btn-apply i {
   font-size: 0.95rem;
+}
+
+.btn-apply:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 /* Compare Button in Toolbar */
@@ -604,11 +627,17 @@
   }
 
   .bank-product-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.6rem;
   }
 
+  .btn-apply {
+    grid-column: 1 / -1;
+  }
+
   .btn-details,
-  .btn-compare {
+  .btn-compare,
+  .btn-apply {
     padding: 0.5rem 0.8rem;
     font-size: 0.8rem;
   }
@@ -637,6 +666,14 @@
   .category-compare-btn,
   .service-explore-btn {
     width: 100%;
+  }
+
+  .bank-product-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .btn-apply {
+    grid-column: auto;
   }
 }
 

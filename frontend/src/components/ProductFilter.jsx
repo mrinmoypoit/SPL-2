@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import './ProductFilter.css'
 
-function ProductFilter({ products, onFilterChange, activeFilters }) {
+function ProductFilter({ products, onFilterChange, activeFilters, isHighlighted = false }) {
   const [filters, setFilters] = useState({
     searchTerm: '',
     minRating: 0,
@@ -9,6 +9,11 @@ function ProductFilter({ products, onFilterChange, activeFilters }) {
     minReward: null,
     company: '',
   })
+
+  useEffect(() => {
+    if (!activeFilters) return
+    setFilters(prev => ({ ...prev, ...activeFilters }))
+  }, [activeFilters])
 
   // Get unique companies from products
   const uniqueCompanies = [...new Set(products.map(p => p.company || p.companyName || p.company_name).filter(Boolean))].sort()
@@ -44,7 +49,7 @@ function ProductFilter({ products, onFilterChange, activeFilters }) {
   }
 
   return (
-    <div className="product-filter-container">
+    <div className={`product-filter-container ${isHighlighted ? 'product-filter-highlight' : ''}`}>
       <div className="filter-header">
         <h3 className="filter-title">
           <i className="fas fa-filter"></i> Filter Products
@@ -55,6 +60,10 @@ function ProductFilter({ products, onFilterChange, activeFilters }) {
           </button>
         )}
       </div>
+
+      {isHighlighted && (
+        <p className="filter-tip-note">Tip: Combine search, company, fee, and reward filters for a precise match.</p>
+      )}
 
       <div className="filter-grid">
         {/* Search */}

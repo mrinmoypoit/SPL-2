@@ -1,5 +1,6 @@
 const { pool } = require('../../../../backend/config/database');
 const { logDataChange } = require('../services/loggingService');
+const { createProductMatchNotifications } = require('../services/notificationService');
 
 const normalizeAttributes = (attributes = []) => {
     if (!Array.isArray(attributes)) {
@@ -17,6 +18,20 @@ const normalizeAttributes = (attributes = []) => {
             value: typeof attr.value === 'string' ? attr.value.trim() : attr.value
         }))
         .filter((attr) => attr.name && attr.value !== null && attr.value !== undefined && attr.value !== '');
+};
+
+const triggerProductMatchNotifications = async (productId) => {
+    try {
+        const result = await createProductMatchNotifications(productId);
+
+        if (result.createdCount > 0) {
+            console.log(
+                `Created ${result.createdCount} user notification(s) for product ${productId} (${result.productName || 'unknown'})`
+            );
+        }
+    } catch (error) {
+        console.error(`Failed to generate product-match notifications for product ${productId}:`, error.message);
+    }
 };
 
 // Get all products with optional filtering
@@ -217,6 +232,10 @@ exports.createProduct = async (req, res) => {
 
             await client.query('COMMIT');
 
+            if (!saveAsDraft) {
+                triggerProductMatchNotifications(productId);
+            }
+
             res.status(201).json({
                 success: true,
                 message: saveAsDraft ? 'Product saved as draft' : 'Product created and published',
@@ -327,6 +346,10 @@ exports.updateProduct = async (req, res) => {
             );
 
             await client.query('COMMIT');
+
+            if (!saveAsDraft) {
+                triggerProductMatchNotifications(Number.parseInt(productId, 10));
+            }
 
             res.json({
                 success: true,
@@ -617,6 +640,8 @@ exports.publishDraft = async (req, res) => {
             );
 
             await client.query('COMMIT');
+
+            triggerProductMatchNotifications(draft.product_id);
 
             res.json({
                 success: true,

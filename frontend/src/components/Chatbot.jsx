@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react'
 import './Chatbot.css'
 import { aiAPI } from '../services/api'
 
+const CHATBOT_OPEN_EVENT = 'tulona:open-chatbot'
+
 function Chatbot() {
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState([
@@ -23,6 +25,23 @@ function Chatbot() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  useEffect(() => {
+    const handleOpenChatbot = (event) => {
+      const prefillMessage = event?.detail?.prefillMessage
+      setIsOpen(true)
+
+      if (prefillMessage && typeof prefillMessage === 'string') {
+        setInputMessage(prefillMessage)
+      }
+    }
+
+    window.addEventListener(CHATBOT_OPEN_EVENT, handleOpenChatbot)
+
+    return () => {
+      window.removeEventListener(CHATBOT_OPEN_EVENT, handleOpenChatbot)
+    }
+  }, [])
 
   const createMessage = (type, text) => ({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

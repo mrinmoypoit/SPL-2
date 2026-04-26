@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { fetchWithApiFallback } from '../../src/utils/apiBase';
 import './DataEntryForm.css';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 const DataEntryForm = ({ product, onSaved, onCancel }) => {
     const [formData, setFormData] = useState({
@@ -26,7 +25,6 @@ const DataEntryForm = ({ product, onSaved, onCancel }) => {
     const [selectedCategory, setSelectedCategory] = useState(null);
 
     const token = localStorage.getItem('adminToken');
-    const apiBaseUrl = API_BASE_URL;
 
     const PRODUCT_CATEGORIES = {
         savings_accounts: {
@@ -143,7 +141,7 @@ const DataEntryForm = ({ product, onSaved, onCancel }) => {
 
     const fetchCompanies = async () => {
         try {
-            const response = await fetch(`${apiBaseUrl}/companies`);
+            const response = await fetchWithApiFallback('/companies');
             if (response.ok) {
                 const data = await response.json();
                 setCompanies(data.companies || []);
@@ -155,7 +153,7 @@ const DataEntryForm = ({ product, onSaved, onCancel }) => {
 
     const fetchCategories = async () => {
         try {
-            const response = await fetch(`${apiBaseUrl}/categories`);
+            const response = await fetchWithApiFallback('/categories');
             if (response.ok) {
                 const data = await response.json();
                 setCategories(data.categories || []);
@@ -168,7 +166,7 @@ const DataEntryForm = ({ product, onSaved, onCancel }) => {
     const fetchSubcategories = async (categoryId = '') => {
         try {
             const query = categoryId ? `?categoryId=${encodeURIComponent(categoryId)}` : '';
-            const response = await fetch(`${apiBaseUrl}/subcategories${query}`);
+            const response = await fetchWithApiFallback(`/subcategories${query}`);
             if (response.ok) {
                 const data = await response.json();
                 setSubcategories(data.subcategories || []);
@@ -241,13 +239,13 @@ const DataEntryForm = ({ product, onSaved, onCancel }) => {
                 (attr) => attr.name && attr.value !== '' && attr.value !== null && attr.value !== undefined
             );
 
-            const url = product 
-                ? `${apiBaseUrl}/admin/products/${product.product_id || product.productId}`
-                : `${apiBaseUrl}/admin/products`;
-            
             const method = product ? 'PUT' : 'POST';
 
-            const response = await fetch(url, {
+            const response = await fetchWithApiFallback(
+                product
+                    ? `/admin/products/${product.product_id || product.productId}`
+                    : '/admin/products',
+                {
                 method,
                 headers: {
                     'Content-Type': 'application/json',
@@ -258,7 +256,8 @@ const DataEntryForm = ({ product, onSaved, onCancel }) => {
                     attributes: finalAttributes,
                     saveAsDraft
                 })
-            });
+                }
+            );
 
             if (response.ok) {
                 const result = await response.json();

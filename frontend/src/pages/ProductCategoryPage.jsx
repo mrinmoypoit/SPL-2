@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import ProductDetailsModal from '../components/ProductDetailsModal'
 import ProductComparisonModal from '../components/ProductComparisonModal'
@@ -45,8 +45,35 @@ const isMatchingCategory = (product, aliasSet) => {
   return false
 }
 
+const resolveWebsiteUrl = (product) => {
+  const rawUrl =
+    product?.website_url ||
+    product?.websiteUrl ||
+    product?.company_website ||
+    product?.companyWebsite ||
+    ''
+
+  const trimmedUrl = String(rawUrl || '').trim()
+  if (!trimmedUrl) {
+    return ''
+  }
+
+  const candidateUrl = /^https?:\/\//i.test(trimmedUrl) ? trimmedUrl : `https://${trimmedUrl}`
+
+  try {
+    const parsedUrl = new URL(candidateUrl)
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return ''
+    }
+    return parsedUrl.toString()
+  } catch {
+    return ''
+  }
+}
+
 function ProductCategoryPage({ title, subtitle, aliases = [] }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [products, setProducts] = useState([])
   const [filteredProducts, setFilteredProducts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -57,6 +84,7 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [comparisonProducts, setComparisonProducts] = useState([])
   const [showComparisonModal, setShowComparisonModal] = useState(false)
+  const [autoOpenedProductId, setAutoOpenedProductId] = useState(null)
   const [filters, setFilters] = useState({
     searchTerm: '',
     minRating: 0,
@@ -69,6 +97,10 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
     const normalized = aliases.map(normalizeText).filter(Boolean)
     return new Set(normalized)
   }, [aliases])
+
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search])
+  const shouldHighlightFilter = searchParams.get('highlightFilter') === '1'
+  const highlightedProductParam = searchParams.get('highlightProduct')
 
   // Apply filters to products
   const applyFilters = useCallback(() => {
@@ -179,6 +211,15 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
     setShowComparisonModal(false)
   }
 
+  const handleApply = (product) => {
+    const websiteUrl = resolveWebsiteUrl(product)
+    if (!websiteUrl) {
+      return
+    }
+
+    window.open(websiteUrl, '_blank', 'noopener,noreferrer')
+  }
+
   const loadProducts = useCallback(
     async ({ silent = false } = {}) => {
       try {
@@ -227,6 +268,25 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
     }
   }, [loadProducts])
 
+  useEffect(() => {
+    if (!highlightedProductParam || autoOpenedProductId === highlightedProductParam) {
+      return
+    }
+
+    const productToOpen = products.find((product) => {
+      const productId = String(product.id ?? product.productId ?? product.product_id)
+      return productId === highlightedProductParam
+    })
+
+    if (!productToOpen) {
+      return
+    }
+
+    setSelectedProduct(productToOpen)
+    setShowDetailsModal(true)
+    setAutoOpenedProductId(highlightedProductParam)
+  }, [products, highlightedProductParam, autoOpenedProductId])
+
   return (
     <div className="bank-services-page">
       <Navbar />
@@ -259,7 +319,12 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
           {/* Sticky Filter Sidebar */}
           {!loading && products.length > 0 && (
             <aside className="products-filter-sidebar">
-              <ProductFilter products={products} onFilterChange={setFilters} activeFilters={filters} />
+              <ProductFilter
+                products={products}
+                onFilterChange={setFilters}
+                activeFilters={filters}
+                isHighlighted={shouldHighlightFilter}
+              />
             </aside>
           )}
 
@@ -303,6 +368,7 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
                     const categoryName = product.category || product.subcategory_name || product.subcategoryName || 'Uncategorized'
                     const parentCategory = product.parent_category || product.parentCategory
                     const features = Array.isArray(product.features) ? product.features.slice(0, 4) : []
+                    const websiteUrl = resolveWebsiteUrl(product)
 
                     return (
                       <article key={productId} className="bank-product-card">
@@ -333,6 +399,7 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
                         <div className="bank-product-actions">
                           <button
                             className="btn-details"
+                            type="button"
                             onClick={() => handleShowDetails(product)}
                             title="View all details"
                           >
@@ -341,11 +408,22 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
                           </button>
                           <button
                             className="btn-compare"
+                            type="button"
                             onClick={() => handleAddToComparison(product)}
                             title="Add to comparison"
                           >
                             <i className="fas fa-check"></i>
                             Compare
+                          </button>
+                          <button
+                            className="btn-apply"
+                            type="button"
+                            onClick={() => handleApply(product)}
+                            title={websiteUrl ? 'Apply on bank website' : 'Bank website unavailable'}
+                            disabled={!websiteUrl}
+                          >
+                            <i className="fas fa-external-link-alt"></i>
+                            Apply
                           </button>
                         </div>
                       </article>
