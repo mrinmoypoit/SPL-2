@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const EMAIL_HOST = process.env.EMAIL_HOST || 'smtp.gmail.com';
 const EMAIL_PORT = Number.parseInt(process.env.EMAIL_PORT, 10) || 587;
@@ -7,8 +8,15 @@ const EMAIL_SECURE = process.env.EMAIL_SECURE
     ? process.env.EMAIL_SECURE === 'true'
     : EMAIL_PORT === 465;
 const EMAIL_USER = (process.env.EMAIL_USER || '').trim();
-const EMAIL_PASSWORD = ((process.env.EMAIL_APP_PASSWORD || process.env.EMAIL_PASSWORD || '').trim()).replace(/\s+/g, '');
+const RAW_EMAIL_APP_PASSWORD = (process.env.EMAIL_APP_PASSWORD || '').trim();
+const RAW_EMAIL_PASSWORD = (process.env.EMAIL_PASSWORD || '').trim();
+const EMAIL_PASSWORD_SOURCE = RAW_EMAIL_APP_PASSWORD
+    ? 'EMAIL_APP_PASSWORD'
+    : (RAW_EMAIL_PASSWORD ? 'EMAIL_PASSWORD' : '');
+const EMAIL_PASSWORD = (RAW_EMAIL_APP_PASSWORD || RAW_EMAIL_PASSWORD).replace(/\s+/g, '');
 const HAS_EMAIL_CREDENTIALS = Boolean(EMAIL_USER && EMAIL_PASSWORD);
+const IS_GMAIL_TRANSPORT = EMAIL_HOST.toLowerCase().includes('gmail') || EMAIL_USER.toLowerCase().endsWith('@gmail.com');
+const LOOKS_LIKE_GOOGLE_APP_PASSWORD = EMAIL_PASSWORD.length === 16;
 
 const transporter = nodemailer.createTransport({
     host: EMAIL_HOST,
@@ -26,16 +34,26 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 let emailServiceReady = false;
 
 const getGmailAuthHint = () => 'Use a Google App Password (16 characters) in EMAIL_APP_PASSWORD. Regular Gmail account passwords are rejected by SMTP.';
+const isGmailAuthError = (error) => /535|badcredentials|username and password not accepted/i.test(
+    `${error?.message || ''} ${error?.response || ''}`
+);
 
 // Verify transporter configuration
 if (!HAS_EMAIL_CREDENTIALS) {
     console.warn('⚠️  Email credentials are missing. Set EMAIL_USER and EMAIL_APP_PASSWORD in backend/.env');
     emailServiceReady = false;
 } else {
+    if (IS_GMAIL_TRANSPORT && EMAIL_PASSWORD_SOURCE === 'EMAIL_PASSWORD') {
+        console.warn('⚠️  Using EMAIL_PASSWORD fallback. Set EMAIL_APP_PASSWORD in backend/.env to avoid Gmail auth failures.');
+    }
+    if (IS_GMAIL_TRANSPORT && !LOOKS_LIKE_GOOGLE_APP_PASSWORD) {
+        console.warn('⚠️  Gmail app passwords are 16 characters (spaces optional). Your current email password does not match that format.');
+    }
+
     transporter.verify((error) => {
         if (error) {
             console.warn('⚠️  Email service verification failed:', error.message);
-            if (error.message && (error.message.includes('535') || error.message.includes('BadCredentials') || error.message.includes('Username and Password not accepted'))) {
+            if (isGmailAuthError(error)) {
                 console.warn(`   ${getGmailAuthHint()}`);
             }
             console.warn('   (Will attempt to send anyway)');
@@ -147,7 +165,7 @@ const sendOTPEmail = async (email, otpCode, otpType) => {
 
     } catch (error) {
         console.error('❌ Email send failed:', error.message);
-        const gmailAuthError = error.message && (error.message.includes('535') || error.message.includes('BadCredentials') || error.message.includes('Username and Password not accepted'));
+        const gmailAuthError = isGmailAuthError(error);
         
         // Fallback to console logging in development
         if (!IS_PRODUCTION) {

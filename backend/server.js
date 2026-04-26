@@ -670,6 +670,14 @@ const CATEGORY_KEYWORDS = {
     telecom: ['mobile', 'sim', 'internet', 'telecom', 'data plan']
 };
 
+const CATEGORY_DB_FILTER_KEYWORDS = {
+    loans: ['loan', 'loans'],
+    'credit cards': ['credit card', 'credit cards', 'card'],
+    deposits: ['deposit', 'deposits', 'fixed deposit', 'savings', 'dps', 'fd', 'fdr'],
+    'bank accounts': ['account', 'accounts', 'current account', 'savings account'],
+    telecom: ['telecom', 'mobile', 'internet', 'data', 'sim']
+};
+
 const normalizeQuestion = (value = '') => String(value).trim().toLowerCase();
 
 const tokenizeQuestion = (question = '') => {
@@ -802,6 +810,9 @@ const buildProductSearchText = (product = {}) => {
 const scoreProductForQuestion = ({ product, questionTokens, preferredCategory, budgetConstraint }) => {
     let score = 0;
     const reasons = [];
+    let categoryMatched = false;
+    let budgetMatched = false;
+    let matchedTokenCount = 0;
 
     const searchableText = buildProductSearchText(product);
 
@@ -809,13 +820,17 @@ const scoreProductForQuestion = ({ product, questionTokens, preferredCategory, b
         const categoryText = `${product.category || ''} ${product.parent_category || ''}`.toLowerCase();
         if (categoryText.includes(preferredCategory.toLowerCase())) {
             score += 5;
+            categoryMatched = true;
             reasons.push(`matches ${preferredCategory} category`);
+        } else {
+            score -= 4;
         }
     }
 
     for (const token of questionTokens) {
         if (searchableText.includes(token)) {
             score += token.length >= 5 ? 2 : 1;
+            matchedTokenCount += 1;
         }
     }
 
@@ -825,9 +840,11 @@ const scoreProductForQuestion = ({ product, questionTokens, preferredCategory, b
 
         if (budgetConstraint.type === 'max' && minValue <= budgetConstraint.max) {
             score += 4;
+            budgetMatched = true;
             reasons.push(`fits budget (≈ ${minValue})`);
         } else if (budgetConstraint.type === 'min' && minValue >= budgetConstraint.min) {
             score += 4;
+            budgetMatched = true;
             reasons.push(`meets minimum budget level (≈ ${minValue})`);
         } else if (
             budgetConstraint.type === 'range' &&
@@ -835,13 +852,22 @@ const scoreProductForQuestion = ({ product, questionTokens, preferredCategory, b
             minValue <= budgetConstraint.max
         ) {
             score += 4;
+            budgetMatched = true;
             reasons.push(`in your budget range (≈ ${minValue})`);
+        } else {
+            score -= 1;
         }
     }
 
     const featureBonus = (product.features || []).length;
-    if (featureBonus > 0) {
-        score += Math.min(featureBonus, 3);
+    const hasQuestionIntent = Boolean(preferredCategory) || Boolean(budgetConstraint) || questionTokens.length > 0;
+    const hasRelevanceSignal = categoryMatched || budgetMatched || matchedTokenCount > 0;
+    if (featureBonus > 0 && (!hasQuestionIntent || hasRelevanceSignal)) {
+        score += Math.min(featureBonus, 2);
+    }
+
+    if (questionTokens.length > 0 && matchedTokenCount === 0) {
+        score -= 1;
     }
 
     const ratingValue = getNumericValueFromText(product.rating);
@@ -855,7 +881,12 @@ const scoreProductForQuestion = ({ product, questionTokens, preferredCategory, b
     return {
         ...product,
         score,
-        reasons
+        reasons,
+        relevanceSignals: {
+            categoryMatched,
+            budgetMatched,
+            matchedTokenCount
+        }
     };
 };
 
@@ -935,6 +966,22 @@ const getAiResponsePayload = async ({ question, limit = 60 }) => {
     `;
     const params = [];
 
+    if (preferredCategory) {
+        const dbKeywords = CATEGORY_DB_FILTER_KEYWORDS[preferredCategory] || [preferredCategory];
+        const keywordConditions = [];
+
+        for (const keyword of dbKeywords) {
+            params.push(`%${keyword.toLowerCase()}%`);
+            const placeholder = `$${params.length}`;
+            keywordConditions.push(`LOWER(sc.name) LIKE ${placeholder}`);
+            keywordConditions.push(`LOWER(cat.name) LIKE ${placeholder}`);
+        }
+
+        if (keywordConditions.length > 0) {
+            productQuery += ` AND (${keywordConditions.join(' OR ')})`;
+        }
+    }
+
     productQuery += ` GROUP BY p.product_id, c.name, c.metrics, sc.name, cat.name ORDER BY p.product_id DESC LIMIT $${params.length + 1}`;
     params.push(safeLimit);
 
@@ -959,7 +1006,17 @@ const getAiResponsePayload = async ({ question, limit = 60 }) => {
         })
         .sort((first, second) => second.score - first.score);
 
-    const rankedProducts = scored.filter((product) => product.score > 0).slice(0, 5);
+    const hasIntentSignals = Boolean(preferredCategory) || Boolean(budgetConstraint) || questionTokens.length > 0;
+    const relevanceFirstProducts = hasIntentSignals
+        ? scored.filter((product) => {
+            const signals = product.relevanceSignals || {};
+            return Boolean(signals.categoryMatched) || Boolean(signals.budgetMatched) || Number(signals.matchedTokenCount || 0) > 0;
+        })
+        : scored;
+
+    const rankedProducts = (relevanceFirstProducts.length > 0 ? relevanceFirstProducts : scored)
+        .filter((product) => product.score > 0)
+        .slice(0, 5);
     const fallbackAnswer = buildAiRecommendationText({
         question,
         rankedProducts,
@@ -976,6 +1033,10 @@ const getAiResponsePayload = async ({ question, limit = 60 }) => {
         },
         fallbackAnswer
     });
+
+    if (aiResult.source !== 'llm' && aiResult.error) {
+        console.warn('AI response used heuristic fallback:', aiResult.error);
+    }
 
     return {
         answer: aiResult.answer,
