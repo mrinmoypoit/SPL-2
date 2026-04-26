@@ -198,7 +198,18 @@
   border-radius: 14px;
   text-align: center;
   color: #e8f3ff;
-  padding: 1rem 1.2rem;
+  padding: 3rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  min-height: 300px;
+}
+
+.bank-products-state i {
+  font-size: 3rem;
+  opacity: 0.5;
 }
 .bank-products-error {
   color: #ffd2d2;
@@ -641,6 +652,113 @@
 
 .service-explore-btn:hover i {
   transform: translateX(5px);
+}
+
+/* Products Layout - Sticky Sidebar */
+.products-layout-container {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+
+.products-filter-sidebar {
+  position: sticky;
+  top: 100px;
+  height: fit-content;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.products-filter-sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.products-filter-sidebar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+.products-filter-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(0, 212, 255, 0.3);
+  border-radius: 10px;
+  transition: background 0.3s ease;
+}
+
+.products-filter-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 212, 255, 0.6);
+}
+
+.products-main-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.products-header {
+  background: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 1.2rem;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.products-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.products-result-info {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.products-count {
+  background: rgba(0, 212, 255, 0.15);
+  color: #d9f4ff;
+  padding: 0.6rem 1.2rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.bank-products {
+  margin-top: 0;
+}
+
+/* Responsive - Layout changes */
+@media (max-width: 1200px) {
+  .products-layout-container {
+    grid-template-columns: 280px 1fr;
+    gap: 1.5rem;
+  }
+
+  .products-filter-sidebar {
+    top: 80px;
+    max-height: calc(100vh - 100px);
+  }
+}
+
+@media (max-width: 1024px) {
+  .products-layout-container {
+    grid-template-columns: 1fr;
+  }
+
+  .products-filter-sidebar {
+    position: relative;
+    top: auto;
+    max-height: none;
+    overflow-y: visible;
+  }
 }
 
 /* Responsive */

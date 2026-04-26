@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import ProductDetailsModal from '../components/ProductDetailsModal'
 import ProductComparisonModal from '../components/ProductComparisonModal'
+import ProductFilter from '../components/ProductFilter'
 import { productsAPI } from '../services/api'
 import './BankServicesPage.css'
 
@@ -47,6 +48,7 @@ const isMatchingCategory = (product, aliasSet) => {
 function ProductCategoryPage({ title, subtitle, aliases = [] }) {
   const navigate = useNavigate()
   const [products, setProducts] = useState([])
+  const [filteredProducts, setFilteredProducts] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
@@ -55,11 +57,90 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [comparisonProducts, setComparisonProducts] = useState([])
   const [showComparisonModal, setShowComparisonModal] = useState(false)
+  const [filters, setFilters] = useState({
+    searchTerm: '',
+    minRating: 0,
+    maxFee: null,
+    minReward: null,
+    company: '',
+  })
 
   const normalizedAliasSet = useMemo(() => {
     const normalized = aliases.map(normalizeText).filter(Boolean)
     return new Set(normalized)
   }, [aliases])
+
+  // Apply filters to products
+  const applyFilters = useCallback(() => {
+    let result = [...products]
+
+    // Search filter
+    if (filters.searchTerm) {
+      const searchLower = filters.searchTerm.toLowerCase()
+      result = result.filter(
+        (p) =>
+          (p.name && p.name.toLowerCase().includes(searchLower)) ||
+          (p.description && p.description.toLowerCase().includes(searchLower)) ||
+          ((p.company || p.companyName || p.company_name) && (p.company || p.companyName || p.company_name).toLowerCase().includes(searchLower))
+      )
+    }
+
+    // Company filter
+    if (filters.company) {
+      result = result.filter(
+        (p) => (p.company || p.companyName || p.company_name) === filters.company
+      )
+    }
+
+    // Rating filter
+    if (filters.minRating > 0) {
+      result = result.filter((p) => {
+        const rating = parseFloat(p.rating) || 0
+        return rating >= filters.minRating
+      })
+    }
+
+    // Max fee filter
+    if (filters.maxFee !== null && filters.maxFee !== undefined && filters.maxFee !== '') {
+      result = result.filter((p) => {
+        const feeKeys = Object.keys(p).filter(
+          (k) => k.toLowerCase().includes('fee') || k.toLowerCase().includes('cost')
+        )
+        const fees = feeKeys.map((k) => {
+          const match = String(p[k]).match(/[\d.]+/)
+          return match ? parseFloat(match[0]) : 0
+        })
+        const minFee = Math.min(...fees, Infinity)
+        return minFee <= filters.maxFee
+      })
+    }
+
+    // Min reward filter
+    if (filters.minReward !== null && filters.minReward !== undefined && filters.minReward !== '') {
+      result = result.filter((p) => {
+        const rewardKeys = Object.keys(p).filter(
+          (k) =>
+            k.toLowerCase().includes('reward') ||
+            k.toLowerCase().includes('cashback') ||
+            k.toLowerCase().includes('rate') ||
+            k.toLowerCase().includes('bonus')
+        )
+        const rewards = rewardKeys.map((k) => {
+          const match = String(p[k]).match(/[\d.]+/)
+          return match ? parseFloat(match[0]) : 0
+        })
+        const maxReward = Math.max(...rewards, 0)
+        return maxReward >= filters.minReward
+      })
+    }
+
+    setFilteredProducts(result)
+  }, [products, filters])
+
+  // Apply filters whenever products or filters change
+  useEffect(() => {
+    applyFilters()
+  }, [applyFilters])
 
   const handleShowDetails = (product) => {
     setSelectedProduct(product)
@@ -156,17 +237,6 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
           <p className="services-subtitle">{subtitle}</p>
 
           <div className="category-toolbar">
-            <div className="category-count-badge">{products.length} products</div>
-            {comparisonProducts.length > 0 && (
-              <button
-                className="category-compare-btn"
-                type="button"
-                onClick={handleShowComparison}
-              >
-                <i className="fas fa-chart-bar"></i>
-                Compare ({comparisonProducts.length})
-              </button>
-            )}
             <button
               className="category-refresh-btn"
               type="button"
@@ -181,74 +251,111 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
             </button>
           </div>
 
-          {lastSyncedAt && <p className="category-last-sync">Last synced: {lastSyncedAt.toLocaleTimeString()}</p>}
+        {lastSyncedAt && <p className="category-last-sync">Last synced: {lastSyncedAt.toLocaleTimeString()}</p>}
         </div>
 
-        <section className="bank-products">
-          {loading ? (
-            <div className="bank-products-state">Loading products…</div>
-          ) : error ? (
-            <div className="bank-products-state bank-products-error">{error}</div>
-          ) : products.length > 0 ? (
-            <div className="bank-products-grid">
-              {products.map((product) => {
-                const productId = product.id ?? product.productId ?? product.product_id
-                const categoryName = product.category || product.subcategory_name || product.subcategoryName || 'Uncategorized'
-                const parentCategory = product.parent_category || product.parentCategory
-                const features = Array.isArray(product.features) ? product.features.slice(0, 4) : []
-
-                return (
-                  <article key={productId} className="bank-product-card">
-                    <div className="bank-product-top">
-                      <h3 className="bank-product-name">{product.name}</h3>
-                      <span className="bank-product-category">{categoryName}</span>
-                    </div>
-
-                    <div className="bank-product-meta">
-                      <span className="bank-product-company">{product.company || product.companyName || product.company_name || 'N/A'}</span>
-                      {product.rating ? <span className="bank-product-rating">Rating: {product.rating}</span> : <span className="bank-product-rating">ID: {productId}</span>}
-                    </div>
-
-                    {parentCategory && <p className="bank-product-parent">Main category: {parentCategory}</p>}
-
-                    {product.description ? <p className="bank-product-desc">{product.description}</p> : <p className="bank-product-desc bank-product-desc-empty">No description provided.</p>}
-
-                    {features.length > 0 && (
-                      <div className="bank-product-features">
-                        {features.map((feature) => (
-                          <span key={`${productId}-${feature}`} className="bank-product-feature-tag">
-                            {feature}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="bank-product-actions">
-                      <button
-                        className="btn-details"
-                        onClick={() => handleShowDetails(product)}
-                        title="View all details"
-                      >
-                        <i className="fas fa-info-circle"></i>
-                        Details
-                      </button>
-                      <button
-                        className="btn-compare"
-                        onClick={() => handleAddToComparison(product)}
-                        title="Add to comparison"
-                      >
-                        <i className="fas fa-check"></i>
-                        Compare
-                      </button>
-                    </div>
-                  </article>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="bank-products-state">No products found for this category yet.</div>
+        {/* Products and Filter Layout */}
+        <div className="products-layout-container">
+          {/* Sticky Filter Sidebar */}
+          {!loading && products.length > 0 && (
+            <aside className="products-filter-sidebar">
+              <ProductFilter products={products} onFilterChange={setFilters} activeFilters={filters} />
+            </aside>
           )}
-        </section>
+
+          {/* Products Section */}
+          <section className="products-main-section">
+            <div className="products-header">
+              <div className="products-toolbar">
+                <div className="products-result-info">
+                  <span className="products-count">
+                    {filteredProducts.length} of {products.length} products
+                  </span>
+                </div>
+                {comparisonProducts.length > 0 && (
+                  <button
+                    className="category-compare-btn"
+                    type="button"
+                    onClick={handleShowComparison}
+                  >
+                    <i className="fas fa-chart-bar"></i>
+                    Compare ({comparisonProducts.length})
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <section className="bank-products">
+              {loading ? (
+                <div className="bank-products-state">Loading products…</div>
+              ) : error ? (
+                <div className="bank-products-state bank-products-error">{error}</div>
+              ) : products.length === 0 ? (
+                <div className="bank-products-state">No products found for this category yet.</div>
+              ) : filteredProducts.length === 0 ? (
+                <div className="bank-products-state">
+                  <i className="fas fa-filter"></i> No products match your filters. Try adjusting your criteria.
+                </div>
+              ) : (
+                <div className="bank-products-grid">
+                  {filteredProducts.map((product) => {
+                    const productId = product.id ?? product.productId ?? product.product_id
+                    const categoryName = product.category || product.subcategory_name || product.subcategoryName || 'Uncategorized'
+                    const parentCategory = product.parent_category || product.parentCategory
+                    const features = Array.isArray(product.features) ? product.features.slice(0, 4) : []
+
+                    return (
+                      <article key={productId} className="bank-product-card">
+                        <div className="bank-product-top">
+                          <h3 className="bank-product-name">{product.name}</h3>
+                          <span className="bank-product-category">{categoryName}</span>
+                        </div>
+
+                        <div className="bank-product-meta">
+                          <span className="bank-product-company">{product.company || product.companyName || product.company_name || 'N/A'}</span>
+                          {product.rating ? <span className="bank-product-rating">Rating: {product.rating}</span> : <span className="bank-product-rating">ID: {productId}</span>}
+                        </div>
+
+                        {parentCategory && <p className="bank-product-parent">Main category: {parentCategory}</p>}
+
+                        {product.description ? <p className="bank-product-desc">{product.description}</p> : <p className="bank-product-desc bank-product-desc-empty">No description provided.</p>}
+
+                        {features.length > 0 && (
+                          <div className="bank-product-features">
+                            {features.map((feature) => (
+                              <span key={`${productId}-${feature}`} className="bank-product-feature-tag">
+                                {feature}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="bank-product-actions">
+                          <button
+                            className="btn-details"
+                            onClick={() => handleShowDetails(product)}
+                            title="View all details"
+                          >
+                            <i className="fas fa-info-circle"></i>
+                            Details
+                          </button>
+                          <button
+                            className="btn-compare"
+                            onClick={() => handleAddToComparison(product)}
+                            title="Add to comparison"
+                          >
+                            <i className="fas fa-check"></i>
+                            Compare
+                          </button>
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
+              )}
+            </section>
+          </section>
+        </div>
 
         {/* Product Details Modal */}
         <ProductDetailsModal
