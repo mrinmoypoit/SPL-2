@@ -247,7 +247,7 @@ app.post('/api/auth/login', async (req, res) => {
                 { expiresIn: '7d' }
             );
 
-            console.log('✅ Admin user logged in:', identifier);
+            console.log('Admin user logged in:', identifier);
 
             return res.json({
                 message: 'Admin login successful',
@@ -349,7 +349,7 @@ app.post('/api/auth/google', async (req, res) => {
                 { expiresIn: '7d' }
             );
 
-            console.log('✅ User authenticated with Google:', user.email);
+            console.log('User authenticated with Google:', user.email);
 
             res.json({
                 message: 'Google authentication successful',
@@ -382,14 +382,14 @@ app.post('/api/otp/generate', async (req, res) => {
         const emailResult = await sendOTPEmail(email, otpCode, otpType);
         
         if (emailResult.error) {
-            console.warn('❌ OTP email failed:', emailResult.error);
+            console.warn('OTP email failed:', emailResult.error);
             return res.status(500).json({ 
                 error: 'Failed to send OTP email',
                 details: emailResult.error 
             });
         }
 
-        console.log(`✅ OTP sent to ${email}: ${otpCode}`);
+        console.log(`OTP sent to ${email}: ${otpCode}`);
         
         res.json({
             message: 'OTP sent successfully',
@@ -454,7 +454,7 @@ app.put('/api/users/profile', authenticateToken, async (req, res) => {
         }
 
         const user = result.rows[0];
-        console.log('✅ Profile updated:', req.user.email);
+        console.log('Profile updated:', req.user.email);
 
         res.json({ 
             message: 'Profile updated successfully',
@@ -508,7 +508,7 @@ app.put('/api/users/change-password', authenticateToken, async (req, res) => {
             [newPasswordHash, req.user.userId]
         );
 
-        console.log('✅ Password changed:', req.user.email);
+        console.log('Password changed:', req.user.email);
 
         res.json({ message: 'Password changed successfully' });
     } catch (error) {
@@ -1700,7 +1700,7 @@ app.put('/api/notifications/read-all', authenticateToken, async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`✅ TULONA API Server running on http://localhost:${PORT}`);
-    console.log(`📚 Database: PostgreSQL`);
-    console.log(`🔐 JWT Secret: ${JWT_SECRET.substring(0, 10)}...`);
+    console.log(`TULONA API Server running on http://localhost:${PORT}`);
+    console.log(`Database: PostgreSQL`);
+    console.log(`JWT Secret: ${JWT_SECRET.substring(0, 10)}...`);
 });

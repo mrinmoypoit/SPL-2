@@ -40,26 +40,26 @@ const isGmailAuthError = (error) => /535|badcredentials|username and password no
 
 // Verify transporter configuration
 if (!HAS_EMAIL_CREDENTIALS) {
-    console.warn('⚠️  Email credentials are missing. Set EMAIL_USER and EMAIL_APP_PASSWORD in backend/.env');
+    console.warn('Email credentials are missing. Set EMAIL_USER and EMAIL_APP_PASSWORD in backend/.env');
     emailServiceReady = false;
 } else {
     if (IS_GMAIL_TRANSPORT && EMAIL_PASSWORD_SOURCE === 'EMAIL_PASSWORD') {
-        console.warn('⚠️  Using EMAIL_PASSWORD fallback. Set EMAIL_APP_PASSWORD in backend/.env to avoid Gmail auth failures.');
+        console.warn('Using EMAIL_PASSWORD fallback. Set EMAIL_APP_PASSWORD in backend/.env to avoid Gmail auth failures.');
     }
     if (IS_GMAIL_TRANSPORT && !LOOKS_LIKE_GOOGLE_APP_PASSWORD) {
-        console.warn('⚠️  Gmail app passwords are 16 characters (spaces optional). Your current email password does not match that format.');
+        console.warn('Gmail app passwords are 16 characters (spaces optional). Your current email password does not match that format.');
     }
 
     transporter.verify((error) => {
         if (error) {
-            console.warn('⚠️  Email service verification failed:', error.message);
+            console.warn('Email service verification failed:', error.message);
             if (isGmailAuthError(error)) {
                 console.warn(`   ${getGmailAuthHint()}`);
             }
             console.warn('   (Will attempt to send anyway)');
             emailServiceReady = false;
         } else {
-            console.log('✅ Email service verified successfully');
+            console.log('Email service verified successfully');
             emailServiceReady = true;
         }
     });
@@ -100,8 +100,8 @@ const getEmailTemplate = (otpCode, otpType) => {
                     <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
                         <tr>
                             <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
-                                <h1 style="margin: 0; color: #ffffff; font-size: 28px;">🏦 TULONA</h1>
-                                <p style="margin: 10px 0 0 0; color: #ffffff; font-size: 14px;">Banking Product Comparison Platform</p>
+                                <h1 style="margin: 0; color: #ffffff; font-size: 28px;">TULONA</h1>
+                                <p style="margin: 10px 0 0 0; color: #ffffff; font-size: 14px;">Product Comparison Platform</p>
                             </td>
                         </tr>
                         
@@ -118,11 +118,11 @@ const getEmailTemplate = (otpCode, otpType) => {
                                 </div>
                                 
                                 <p style="margin: 20px 0; color: #666666; font-size: 14px; line-height: 1.5;">
-                                    ⏰ This OTP will expire in <strong>10 minutes</strong>.
+                                    * This OTP will expire in <strong>10 minutes</strong>.
                                 </p>
                                 
                                 <p style="margin: 20px 0 0 0; color: #999999; font-size: 12px; line-height: 1.5;">
-                                    ⚠️ If you didn't request this OTP, please ignore this email or contact our support team.
+                                    * If you didn't request this OTP, please ignore this email or contact our support team.
                                 </p>
                             </td>
                         </tr>
@@ -133,7 +133,7 @@ const getEmailTemplate = (otpCode, otpType) => {
                                     © 2026 TULONA. All rights reserved.
                                 </p>
                                 <p style="margin: 0; color: #999999; font-size: 12px;">
-                                    Banking Product Comparison Platform
+                                    Product Comparison Platform
                                 </p>
                             </td>
                         </tr>
@@ -160,19 +160,19 @@ const sendOTPEmail = async (email, otpCode, otpType) => {
         };
 
         const info = await transporter.sendMail(mailOptions);
-        console.log('✅ Email sent successfully to', email, '- Message ID:', info.messageId);
+        console.log('Email sent successfully to', email, '- Message ID:', info.messageId);
         return { success: true, messageId: info.messageId, method: 'real' };
 
     } catch (error) {
-        console.error('❌ Email send failed:', error.message);
+        console.error('Email send failed:', error.message);
         const gmailAuthError = isGmailAuthError(error);
         
         // Fallback to console logging in development
         if (!IS_PRODUCTION) {
             if (gmailAuthError) {
-                console.warn(`⚠️  ${getGmailAuthHint()}`);
+                console.warn(`  ${getGmailAuthHint()}`);
             }
-            console.log(`📧 [DEV MODE] OTP code for ${email}: ${otpCode}`);
+            console.log(` [DEV MODE] OTP code for ${email}: ${otpCode}`);
             // Success is true here ONLY because we are emulating an email in dev mode
             return { success: true, isDev: true, messageId: 'dev-mode', method: 'console' };
         }
@@ -191,17 +191,17 @@ const sendWelcomeEmail = async (email, name) => {
         const mailOptions = {
             from: `"TULONA" <${EMAIL_USER || 'noreply@tulona.com'}>`,
             to: email,
-            subject: 'Welcome to TULONA! 🎉',
+            subject: 'Welcome to TULONA! ',
             html: `
             <!DOCTYPE html>
             <html>
             <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                 <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                    <h2 style="color: #667eea;">Welcome to TULONA, ${name}! 🎉</h2>
-                    <p>Thank you for joining TULONA - your trusted Banking Product Comparison Platform.</p>
+                    <h2 style="color: #667eea;">Welcome to TULONA, ${name}! </h2>
+                    <p>Thank you for joining TULONA - your trusted Product Comparison Platform.</p>
                     <p>With TULONA, you can:</p>
                     <ul>
-                        <li>Compare banking products from multiple institutions</li>
+                        <li>Compare products from multiple institutions</li>
                         <li>Get personalized product recommendations</li>
                         <li>Receive notifications about new offers</li>
                         <li>Make informed financial decisions</li>
@@ -216,11 +216,11 @@ const sendWelcomeEmail = async (email, name) => {
         };
 
         await transporter.sendMail(mailOptions);
-        console.log('✅ Welcome email sent to:', email);
+        console.log('Welcome email sent to:', email);
     } catch (error) {
-        console.warn('⚠️  Welcome email send failed:', error.message);
+        console.warn('Welcome email send failed:', error.message);
         if (!IS_PRODUCTION) {
-            console.log(`📧 [DEV MODE] Welcome would be sent to ${email}`);
+            console.log(` [DEV MODE] Welcome would be sent to ${email}`);
         }
     }
 };
@@ -249,11 +249,11 @@ const sendPasswordResetConfirmation = async (email, name) => {
         };
 
         await transporter.sendMail(mailOptions);
-        console.log('✅ Password reset confirmation sent to:', email);
+        console.log('Password reset confirmation sent to:', email);
     } catch (error) {
-        console.warn('⚠️  Confirmation email send failed:', error.message);
+        console.warn('Confirmation email send failed:', error.message);
         if (!IS_PRODUCTION) {
-            console.log(`📧 [DEV MODE] Confirmation would be sent to ${email}`);
+            console.log(` [DEV MODE] Confirmation would be sent to ${email}`);
         }
     }
 };
