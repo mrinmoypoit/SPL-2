@@ -498,6 +498,137 @@
   height: 300px;
 }
 
+/* Product Actions Buttons */
+.bank-product-actions {
+  display: flex;
+  gap: 0.8rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btn-details,
+.btn-compare {
+  flex: 1;
+  padding: 0.6rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.3s ease;
+}
+
+.btn-details {
+  background: rgba(0, 212, 255, 0.15);
+  color: #d9f4ff;
+  border-color: rgba(0, 212, 255, 0.4);
+}
+
+.btn-details:hover {
+  background: rgba(0, 212, 255, 0.3);
+  border-color: rgba(0, 212, 255, 0.6);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 212, 255, 0.2);
+}
+
+.btn-compare {
+  background: rgba(76, 175, 80, 0.15);
+  color: #b9e6ba;
+  border-color: rgba(76, 175, 80, 0.4);
+}
+
+.btn-compare:hover {
+  background: rgba(76, 175, 80, 0.3);
+  border-color: rgba(76, 175, 80, 0.6);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.2);
+}
+
+.btn-details i,
+.btn-compare i {
+  font-size: 0.95rem;
+}
+
+/* Compare Button in Toolbar */
+.category-compare-btn {
+  background: rgba(76, 175, 80, 0.2);
+  border: 1px solid rgba(76, 175, 80, 0.5);
+  color: #b9e6ba;
+  font-weight: 600;
+  padding: 0.7rem 1.2rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+}
+
+.category-compare-btn:hover {
+  background: rgba(76, 175, 80, 0.35);
+  border-color: rgba(76, 175, 80, 0.7);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.2);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .services-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+  }
+
+  .services-title {
+    font-size: 2.5rem;
+  }
+
+  .services-subtitle {
+    font-size: 1rem;
+  }
+
+  .bank-product-actions {
+    gap: 0.6rem;
+  }
+
+  .btn-details,
+  .btn-compare {
+    padding: 0.5rem 0.8rem;
+    font-size: 0.8rem;
+  }
+
+  .category-compare-btn {
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .services-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .services-title {
+    font-size: 1.8rem;
+  }
+
+  .category-toolbar {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .category-refresh-btn,
+  .category-compare-btn,
+  .service-explore-btn {
+    width: 100%;
+  }
+}
+
 .service-explore-btn span,
 .service-explore-btn i {
   position: relative;
