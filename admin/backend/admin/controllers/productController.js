@@ -146,7 +146,7 @@ exports.getProduct = async (req, res) => {
     }
 };
 
-// Create new product
+// Create new product - Direct database insertion
 exports.createProduct = async (req, res) => {
     try {
         const { name, description, companyId, subcategoryId, attributes, saveAsDraft } = req.body;
@@ -162,11 +162,22 @@ exports.createProduct = async (req, res) => {
         try {
             await client.query('BEGIN');
 
-            // Create product
+            // Step 1: Verify company exists
+            const companyCheck = await client.query(
+                `SELECT company_id FROM companies WHERE company_id = $1`,
+                [companyId]
+            );
+
+            if (companyCheck.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ error: 'Company not found' });
+            }
+
+            // Step 2: Create product in database
             const productQuery = `
-                INSERT INTO products (name, description, company_id, subcategory_id)
-                VALUES ($1, $2, $3, $4)
-                RETURNING *
+                INSERT INTO products (name, description, company_id, subcategory_id, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, NOW(), NOW())
+                RETURNING product_id, name, description, company_id, subcategory_id, created_at, updated_at
             `;
 
             const productResult = await client.query(productQuery, [
@@ -185,27 +196,29 @@ exports.createProduct = async (req, res) => {
                 attributes: normalizedAttributes
             };
 
-            // Insert attributes if provided
+            // Step 3: Insert attributes into database
             if (normalizedAttributes.length > 0) {
                 for (const attr of normalizedAttributes) {
                     await client.query(
-                        `INSERT INTO product_attributes (product_id, attribute_name, attribute_value, attribute_type)
-                         VALUES ($1, $2, $3, $4)`,
+                        `INSERT INTO product_attributes 
+                         (product_id, attribute_name, attribute_value, attribute_type, created_at)
+                         VALUES ($1, $2, $3, $4, NOW())`,
                         [productId, attr.name, attr.value, attr.type || 'text']
                     );
                 }
             }
 
-            // Create draft if requested
+            // Step 4: Create draft if requested
             if (saveAsDraft) {
                 await client.query(
-                    `INSERT INTO product_drafts (product_id, operator_id, draft_data, is_active)
-                     VALUES ($1, $2, $3, true)`,
+                    `INSERT INTO product_drafts 
+                     (product_id, operator_id, draft_data, is_active, created_at, updated_at)
+                     VALUES ($1, $2, $3, true, NOW(), NOW())`,
                     [productId, operatorId, JSON.stringify(newData)]
                 );
             }
 
-            // Log the change
+            // Step 5: Log the change
             await logDataChange(
                 operatorId,
                 productId,
@@ -215,26 +228,43 @@ exports.createProduct = async (req, res) => {
                 client
             );
 
+            // Step 6: Commit transaction - ensures all data is saved to database
             await client.query('COMMIT');
+
+            console.log(`✅ Product ${productId} created and saved to database successfully`);
 
             res.status(201).json({
                 success: true,
-                message: saveAsDraft ? 'Product saved as draft' : 'Product created and published',
-                data: productResult.rows[0]
+                message: saveAsDraft ? 'Product saved as draft in database' : 'Product created and published to database',
+                data: {
+                    productId: productResult.rows[0].product_id,
+                    name: productResult.rows[0].name,
+                    description: productResult.rows[0].description,
+                    companyId: productResult.rows[0].company_id,
+                    subcategoryId: productResult.rows[0].subcategory_id,
+                    status: saveAsDraft ? 'draft' : 'published',
+                    createdAt: productResult.rows[0].created_at,
+                    updatedAt: productResult.rows[0].updated_at,
+                    attributesCount: normalizedAttributes.length
+                }
             });
         } catch (error) {
             await client.query('ROLLBACK');
+            console.error('Error in transaction:', error);
             throw error;
         } finally {
             client.release();
         }
     } catch (error) {
         console.error('Error creating product:', error);
-        res.status(500).json({ error: 'Failed to create product' });
+        res.status(500).json({ 
+            error: 'Failed to create product',
+            details: error.message 
+        });
     }
 };
 
-// Update product
+// Update product - Save to database
 exports.updateProduct = async (req, res) => {
     try {
         const { productId } = req.params;
@@ -248,7 +278,7 @@ exports.updateProduct = async (req, res) => {
         try {
             await client.query('BEGIN');
 
-            // Get old data for logging
+            // Step 1: Get old data for logging
             const oldDataResult = await client.query(
                 `SELECT * FROM products WHERE product_id = $1`,
                 [productId]
@@ -261,12 +291,12 @@ exports.updateProduct = async (req, res) => {
 
             const oldData = oldDataResult.rows[0];
 
-            // Update product
+            // Step 2: Update product in database
             const updateQuery = `
                 UPDATE products
-                SET name = $1, description = $2, company_id = $3, subcategory_id = $4
+                SET name = $1, description = $2, company_id = $3, subcategory_id = $4, updated_at = NOW()
                 WHERE product_id = $5
-                RETURNING *
+                RETURNING product_id, name, description, company_id, subcategory_id, created_at, updated_at
             `;
 
             const updateResult = await client.query(updateQuery, [
@@ -285,27 +315,28 @@ exports.updateProduct = async (req, res) => {
                 attributes: normalizedAttributes
             };
 
-            // Delete and recreate attributes when attributes payload is provided
+            // Step 3: Delete and recreate attributes when attributes payload is provided
             if (hasAttributesPayload) {
                 await client.query('DELETE FROM product_attributes WHERE product_id = $1', [productId]);
                 for (const attr of normalizedAttributes) {
                     await client.query(
-                        `INSERT INTO product_attributes (product_id, attribute_name, attribute_value, attribute_type)
-                         VALUES ($1, $2, $3, $4)`,
+                        `INSERT INTO product_attributes 
+                         (product_id, attribute_name, attribute_value, attribute_type, created_at)
+                         VALUES ($1, $2, $3, $4, NOW())`,
                         [productId, attr.name, attr.value, attr.type || 'text']
                     );
                 }
             }
 
-            // Create draft if requested
+            // Step 4: Create draft if requested
             if (saveAsDraft) {
                 await client.query(
                     `UPDATE product_drafts SET is_active = false WHERE product_id = $1`,
                     [productId]
                 );
                 await client.query(
-                    `INSERT INTO product_drafts (product_id, operator_id, draft_data, is_active)
-                     VALUES ($1, $2, $3, true)`,
+                    `INSERT INTO product_drafts (product_id, operator_id, draft_data, is_active, created_at, updated_at)
+                     VALUES ($1, $2, $3, true, NOW(), NOW())`,
                     [productId, operatorId, JSON.stringify(newData)]
                 );
             } else {
@@ -316,7 +347,7 @@ exports.updateProduct = async (req, res) => {
                 );
             }
 
-            // Log the change
+            // Step 5: Log the change
             await logDataChange(
                 operatorId,
                 productId,
@@ -326,22 +357,39 @@ exports.updateProduct = async (req, res) => {
                 client
             );
 
+            // Step 6: Commit transaction - ensures all updates are saved to database
             await client.query('COMMIT');
+
+            console.log(`✅ Product ${productId} updated and saved to database successfully`);
 
             res.json({
                 success: true,
-                message: saveAsDraft ? 'Changes saved as draft' : 'Product updated',
-                data: updateResult.rows[0]
+                message: saveAsDraft ? 'Changes saved as draft in database' : 'Product updated and saved to database',
+                data: {
+                    productId: updateResult.rows[0].product_id,
+                    name: updateResult.rows[0].name,
+                    description: updateResult.rows[0].description,
+                    companyId: updateResult.rows[0].company_id,
+                    subcategoryId: updateResult.rows[0].subcategory_id,
+                    status: saveAsDraft ? 'draft' : 'published',
+                    createdAt: updateResult.rows[0].created_at,
+                    updatedAt: updateResult.rows[0].updated_at,
+                    attributesUpdated: hasAttributesPayload ? normalizedAttributes.length : 0
+                }
             });
         } catch (error) {
             await client.query('ROLLBACK');
+            console.error('Error in transaction:', error);
             throw error;
         } finally {
             client.release();
         }
     } catch (error) {
         console.error('Error updating product:', error);
-        res.status(500).json({ error: 'Failed to update product' });
+        res.status(500).json({ 
+            error: 'Failed to update product',
+            details: error.message 
+        });
     }
 };
 
@@ -568,7 +616,7 @@ exports.deleteProduct = async (req, res) => {
     }
 };
 
-// Publish draft
+// Publish draft - Update products table with draft data
 exports.publishDraft = async (req, res) => {
     try {
         const { draftId } = req.params;
@@ -578,60 +626,127 @@ exports.publishDraft = async (req, res) => {
         try {
             await client.query('BEGIN');
 
+            // Step 1: Get draft data
             const draftResult = await client.query(
-                `SELECT * FROM product_drafts WHERE draft_id = $1`,
+                `SELECT * FROM product_drafts WHERE draft_id = $1 AND is_active = true`,
                 [draftId]
             );
 
             if (draftResult.rows.length === 0) {
                 await client.query('ROLLBACK');
-                return res.status(404).json({ error: 'Draft not found' });
+                return res.status(404).json({ error: 'Draft not found or already published' });
             }
 
             const draft = draftResult.rows[0];
+            let draftData = {};
+            try {
+                draftData = draft.draft_data ? JSON.parse(draft.draft_data) : {};
+            } catch {
+                draftData = {};
+            }
 
-            // Mark as inactive
+            // Step 2: Get old product data for logging
+            const oldProductResult = await client.query(
+                `SELECT * FROM products WHERE product_id = $1`,
+                [draft.product_id]
+            );
+            const oldProductData = oldProductResult.rows.length > 0 ? oldProductResult.rows[0] : {};
+
+            // Step 3: Update products table with draft data
+            const updateQuery = `
+                UPDATE products
+                SET 
+                    name = COALESCE($1, name),
+                    description = COALESCE($2, description),
+                    company_id = COALESCE($3, company_id),
+                    subcategory_id = COALESCE($4, subcategory_id),
+                    updated_at = NOW()
+                WHERE product_id = $5
+                RETURNING *
+            `;
+
+            const updateResult = await client.query(updateQuery, [
+                draftData.name || null,
+                draftData.description || null,
+                draftData.companyId || draftData.company_id || null,
+                draftData.subcategoryId || draftData.subcategory_id || null,
+                draft.product_id
+            ]);
+
+            if (updateResult.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ error: 'Product not found' });
+            }
+
+            // Step 4: Update product attributes if provided
+            if (draftData.attributes && Array.isArray(draftData.attributes) && draftData.attributes.length > 0) {
+                // Delete old attributes
+                await client.query(
+                    `DELETE FROM product_attributes WHERE product_id = $1`,
+                    [draft.product_id]
+                );
+
+                // Insert new attributes from draft
+                for (const attr of draftData.attributes) {
+                    await client.query(
+                        `INSERT INTO product_attributes 
+                         (product_id, attribute_name, attribute_value, attribute_type)
+                         VALUES ($1, $2, $3, $4)`,
+                        [
+                            draft.product_id,
+                            attr.name || attr.attribute_name,
+                            attr.value || attr.attribute_value,
+                            attr.type || attr.attribute_type || 'text'
+                        ]
+                    );
+                }
+            }
+
+            // Step 5: Mark draft as inactive
             await client.query(
                 `UPDATE product_drafts SET is_active = false WHERE draft_id = $1`,
                 [draftId]
             );
 
-            let oldDraftData = {};
-            try {
-                oldDraftData = draft.draft_data ? JSON.parse(draft.draft_data) : {};
-            } catch {
-                oldDraftData = {};
-            }
-
+            // Step 6: Log the publish action
             await logDataChange(
                 operatorId,
                 draft.product_id,
                 'PUBLISH',
-                oldDraftData,
-                {
-                    ...oldDraftData,
-                    published: true,
-                    publishedFromDraftId: draftId
-                },
+                oldProductData,
+                updateResult.rows[0],
                 client
             );
 
             await client.query('COMMIT');
 
+            const newProduct = updateResult.rows[0];
+
             res.json({
                 success: true,
-                message: 'Draft published successfully',
-                productId: draft.product_id
+                message: 'Draft published successfully to database',
+                productId: draft.product_id,
+                data: {
+                    name: newProduct.name,
+                    description: newProduct.description,
+                    company_id: newProduct.company_id,
+                    subcategory_id: newProduct.subcategory_id,
+                    updated_at: newProduct.updated_at
+                }
             });
         } catch (error) {
             await client.query('ROLLBACK');
+            console.error('Error in transaction:', error);
             throw error;
         } finally {
             client.release();
         }
     } catch (error) {
         console.error('Error publishing draft:', error);
-        res.status(500).json({ error: 'Failed to publish draft' });
+        res.status(500).json({ 
+            error: 'Failed to publish draft',
+            details: error.message 
+        });
     }
 };
 

@@ -1352,6 +1352,187 @@ app.get('/api/admin/operators/dashboard/stats', authenticateToken, async (req, r
 
 // ============ ADMIN PRODUCTS ROUTES ============
 
+// 🔍 DATABASE VERIFICATION ENDPOINT - Check if data is stored
+app.get('/api/verify-database', authenticateToken, async (req, res) => {
+    try {
+        console.log('\n📊 DATABASE VERIFICATION REQUEST...\n');
+
+        const results = {
+            timestamp: new Date().toISOString(),
+            checks: {}
+        };
+
+        // 1. Check Products Table
+        const productsResult = await pool.query(`
+            SELECT 
+                COUNT(*) as total,
+                MAX(created_at) as latest_created,
+                MAX(updated_at) as latest_updated
+            FROM products
+        `);
+        results.checks.products_table = {
+            total_count: parseInt(productsResult.rows[0].total),
+            latest_created: productsResult.rows[0].latest_created,
+            latest_updated: productsResult.rows[0].latest_updated,
+            status: parseInt(productsResult.rows[0].total) > 0 ? '✅ Data Found' : '❌ Empty'
+        };
+
+        // 2. Get Sample Products
+        const sampleProducts = await pool.query(`
+            SELECT 
+                p.product_id,
+                p.name,
+                p.description,
+                c.name as company_name,
+                sc.name as subcategory_name,
+                p.created_at,
+                p.updated_at
+            FROM products p
+            LEFT JOIN companies c ON p.company_id = c.company_id
+            LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.subcategory_id
+            ORDER BY p.created_at DESC
+            LIMIT 5
+        `);
+        results.checks.sample_products = sampleProducts.rows.map(row => ({
+            productId: row.product_id,
+            name: row.name,
+            description: row.description,
+            company: row.company_name,
+            category: row.subcategory_name,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at
+        }));
+
+        // 3. Check Product Attributes
+        const attributesResult = await pool.query(`
+            SELECT 
+                COUNT(*) as total,
+                COUNT(DISTINCT product_id) as products_with_attributes
+            FROM product_attributes
+        `);
+        results.checks.attributes_table = {
+            total_count: parseInt(attributesResult.rows[0].total),
+            products_with_attributes: parseInt(attributesResult.rows[0].products_with_attributes),
+            status: parseInt(attributesResult.rows[0].total) > 0 ? '✅ Data Found' : '⚠️ Empty'
+        };
+
+        // 4. Get Sample Attributes
+        const sampleAttrs = await pool.query(`
+            SELECT 
+                pa.attribute_id,
+                pa.product_id,
+                p.name as product_name,
+                pa.attribute_name,
+                pa.attribute_value,
+                pa.attribute_type
+            FROM product_attributes pa
+            LEFT JOIN products p ON pa.product_id = p.product_id
+            LIMIT 10
+        `);
+        results.checks.sample_attributes = sampleAttrs.rows.map(row => ({
+            attributeId: row.attribute_id,
+            productId: row.product_id,
+            productName: row.product_name,
+            name: row.attribute_name,
+            value: row.attribute_value,
+            type: row.attribute_type
+        }));
+
+        // 5. Check Product Drafts
+        const draftsResult = await pool.query(`
+            SELECT 
+                COUNT(*) as total,
+                COUNT(CASE WHEN is_active = true THEN 1 END) as active_drafts
+            FROM product_drafts
+        `);
+        results.checks.drafts_table = {
+            total_count: parseInt(draftsResult.rows[0].total),
+            active_count: parseInt(draftsResult.rows[0].active_drafts),
+            status: parseInt(draftsResult.rows[0].total) > 0 ? '✅ Data Found' : '⚠️ Empty'
+        };
+
+        // 6. Get Sample Drafts
+        const sampleDrafts = await pool.query(`
+            SELECT 
+                pd.draft_id,
+                pd.product_id,
+                p.name as product_name,
+                pd.operator_id,
+                pd.is_active,
+                pd.created_at,
+                pd.updated_at
+            FROM product_drafts pd
+            LEFT JOIN products p ON pd.product_id = p.product_id
+            LIMIT 5
+        `);
+        results.checks.sample_drafts = sampleDrafts.rows.map(row => ({
+            draftId: row.draft_id,
+            productId: row.product_id,
+            productName: row.product_name,
+            operatorId: row.operator_id,
+            isActive: row.is_active,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at
+        }));
+
+        // 7. Check Data Change Logs
+        const logsResult = await pool.query(`
+            SELECT 
+                COUNT(*) as total,
+                COUNT(DISTINCT product_id) as products_changed,
+                COUNT(DISTINCT operator_id) as operators
+            FROM data_change_logs
+        `);
+        results.checks.logs_table = {
+            total_count: parseInt(logsResult.rows[0].total),
+            products_changed: parseInt(logsResult.rows[0].products_changed),
+            operators: parseInt(logsResult.rows[0].operators),
+            status: parseInt(logsResult.rows[0].total) > 0 ? '✅ Data Found' : '⚠️ Empty'
+        };
+
+        // 8. Get Sample Logs
+        const sampleLogs = await pool.query(`
+            SELECT 
+                dcl.log_id,
+                dcl.operator_id,
+                dcl.product_id,
+                dcl.action,
+                dcl.timestamp
+            FROM data_change_logs dcl
+            ORDER BY dcl.timestamp DESC
+            LIMIT 10
+        `);
+        results.checks.sample_logs = sampleLogs.rows.map(row => ({
+            logId: row.log_id,
+            operatorId: row.operator_id,
+            productId: row.product_id,
+            action: row.action,
+            timestamp: row.timestamp
+        }));
+
+        // 9. Overall Summary
+        results.summary = {
+            total_products: parseInt(productsResult.rows[0].total),
+            total_attributes: parseInt(attributesResult.rows[0].total),
+            total_drafts: parseInt(draftsResult.rows[0].total),
+            active_drafts: parseInt(draftsResult.rows[0].active_drafts),
+            total_changes: parseInt(logsResult.rows[0].total),
+            database_status: parseInt(productsResult.rows[0].total) > 0 ? '✅ Database is populated' : '⚠️ Database is empty'
+        };
+
+        console.log('✅ DATABASE VERIFICATION COMPLETE');
+        console.log(JSON.stringify(results.summary, null, 2));
+
+        res.json(results);
+    } catch (error) {
+        console.error('❌ Database verification error:', error);
+        res.status(500).json({ 
+            error: 'Failed to verify database',
+            details: error.message 
+        });
+    }
+});
+
 // Get All Products
 app.get('/api/admin/products', authenticateToken, async (req, res) => {
     try {
