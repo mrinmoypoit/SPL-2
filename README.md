@@ -314,20 +314,4 @@ The application uses Nodemailer for sending emails:
 
 Configure Gmail App Password in `.env` for email functionality.
 
-## 🤝 Contributing
-
-1. Create a new branch for your feature
-2. Make your changes
-3. Submit a pull request with a clear description
-
-## 📄 License
-
-ISC License
-
-## 📧 Support
-
-For issues or questions, please contact the development team or create an issue in the repository.
-
----
-
 
