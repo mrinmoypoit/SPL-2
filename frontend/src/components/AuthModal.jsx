@@ -94,8 +94,8 @@ function AuthModal({ isOpen, onClose, initialMode = 'login' }) {
 
         {mode === 'login' && (
           <div className="auth-content">
-            <h2>Welcome Back!</h2>
-            <p className="auth-subtitle">Sign in to access your account</p>
+            <h2>Welcome!</h2>
+            <p className="auth-subtitle">login to access your account</p>
 
             {isGoogleOAuthConfigured ? (
               <>
