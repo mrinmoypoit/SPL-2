@@ -93,6 +93,27 @@
   padding: 3rem;
 }
 
+.error-message,
+.success-message {
+  padding: 0.9rem 1rem;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.error-message {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+}
+
+.success-message {
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  color: #166534;
+}
+
 .edit-btn {
   display: inline-flex;
   align-items: center;
@@ -180,6 +201,13 @@
 .save-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+}
+
+.save-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .form-grid {

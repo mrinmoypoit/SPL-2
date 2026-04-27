@@ -161,6 +161,18 @@
   background: linear-gradient(135deg, #f59e0b, #d97706);
 }
 
+.notification-icon.ai_assistant {
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+}
+
+.notification-icon.feature_filter {
+  background: linear-gradient(135deg, #0ea5e9, #0369a1);
+}
+
+.notification-icon.product_match {
+  background: linear-gradient(135deg, #14b8a6, #0f766e);
+}
+
 .notification-icon i {
   color: white;
   font-size: 1.2rem;

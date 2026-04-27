@@ -23,6 +23,67 @@ pool.query('SELECT NOW()')
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
+const ONBOARDING_NOTIFICATION_DEFINITIONS = [
+    {
+        type: 'ai_assistant',
+        title: 'Use AI for instant answers',
+        message: 'Ask TULONA AI anything about loans, cards, and deposits. Tap to open chat now.'
+    },
+    {
+        type: 'feature_filter',
+        title: 'Try smart product filters',
+        message: 'Use the filter section to quickly find products by fee, rewards, company, and rating.'
+    }
+];
+
+const createNotification = async ({ userId, title, message, type, productId = null }) => {
+    await pool.query(
+        `INSERT INTO notifications (user_id, title, message, notification_type, product_id, is_read)
+         VALUES ($1, $2, $3, $4, $5, false)`,
+        [userId, title, message, type, productId]
+    );
+};
+
+const ensureOnboardingNotifications = async (userId) => {
+    if (!userId) {
+        return;
+    }
+
+    const userExistsResult = await pool.query(
+        `SELECT 1 FROM users WHERE user_id = $1`,
+        [userId]
+    );
+
+    if (userExistsResult.rows.length === 0) {
+        return;
+    }
+
+    const notificationTypes = ONBOARDING_NOTIFICATION_DEFINITIONS.map((entry) => entry.type);
+
+    const existingResult = await pool.query(
+        `SELECT notification_type
+         FROM notifications
+         WHERE user_id = $1
+           AND notification_type = ANY($2::text[])`,
+        [userId, notificationTypes]
+    );
+
+    const existingTypes = new Set(existingResult.rows.map((row) => row.notification_type));
+
+    for (const notification of ONBOARDING_NOTIFICATION_DEFINITIONS) {
+        if (existingTypes.has(notification.type)) {
+            continue;
+        }
+
+        await createNotification({
+            userId,
+            title: notification.title,
+            message: notification.message,
+            type: notification.type
+        });
+    }
+};
+
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -123,6 +184,13 @@ app.post('/api/auth/register', async (req, res) => {
         );
 
         const newUser = result.rows[0];
+
+        try {
+            await ensureOnboardingNotifications(newUser.user_id);
+        } catch (notificationError) {
+            console.warn('Failed to create onboarding notifications:', notificationError.message);
+        }
+
         const token = jwt.sign(
             { userId: newUser.user_id, email: newUser.email, name: newUser.name, role: 'user' },
             JWT_SECRET,
@@ -212,7 +280,13 @@ app.post('/api/auth/login', async (req, res) => {
             { expiresIn: '7d' }
         );
 
-        console.log('User logged in:', identifier);
+        try {
+            await ensureOnboardingNotifications(user.user_id);
+        } catch (notificationError) {
+            console.warn('Failed to backfill onboarding notifications:', notificationError.message);
+        }
+
+        console.log('✅ User logged in:', identifier);
 
         res.json({
             message: 'Login successful',
@@ -521,6 +595,7 @@ const queryProducts = async ({ category = 'all', search = '', limit = 20, offset
             p.name, 
             p.description,
             c.name as company, 
+            c.website_url as website_url,
             sc.name as category,
             cat.name as parent_category,
             c.metrics,
@@ -563,7 +638,7 @@ const queryProducts = async ({ category = 'all', search = '', limit = 20, offset
         countQueryStr += ` AND p.name ILIKE $${queryParams.length}`;
     }
 
-    queryStr += ` GROUP BY p.product_id, c.name, c.metrics, sc.name, cat.name`;
+    queryStr += ` GROUP BY p.product_id, c.name, c.website_url, c.metrics, sc.name, cat.name`;
     queryStr += ` ORDER BY p.product_id DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
 
     const parsedLimit = Number.parseInt(limit, 10);
@@ -1168,6 +1243,7 @@ app.get('/api/products/:id', async (req, res) => {
                 p.name,
                 p.description,
                 c.name as company,
+                c.website_url as website_url,
                 sc.name as category,
                 cat.name as parent_category,
                 c.metrics,
@@ -1187,7 +1263,7 @@ app.get('/api/products/:id', async (req, res) => {
             LEFT JOIN category cat ON sc.category_id = cat.category_id
             LEFT JOIN product_attributes pa ON p.product_id = pa.product_id
             WHERE p.product_id = $1
-            GROUP BY p.product_id, c.name, c.metrics, sc.name, cat.name
+            GROUP BY p.product_id, c.name, c.website_url, c.metrics, sc.name, cat.name
         `;
 
         const result = await pool.query(query, [productId]);
@@ -1706,43 +1782,55 @@ app.get('/api/admin/products/:productId/logs', authenticateToken, async (req, re
 // Get Notifications
 app.get('/api/notifications', authenticateToken, async (req, res) => {
     try {
-        const notifications = [
-            {
-                id: 1,
-                title: 'New Credit Card Offer',
-                message: 'Bank A has a new premium credit card with 5% cashback',
-                type: 'offer',
-                isRead: false,
-                createdAt: new Date(Date.now() - 3600000)
-            },
-            {
-                id: 2,
-                title: 'Loan Interest Dropped',
-                message: 'Personal loan rates have decreased at Bank B',
-                type: 'alert',
-                isRead: false,
-                createdAt: new Date(Date.now() - 7200000)
-            },
-            {
-                id: 3,
-                title: 'Profile Verified',
-                message: 'Your email has been successfully verified',
-                type: 'success',
-                isRead: true,
-                createdAt: new Date(Date.now() - 86400000)
-            },
-            {
-                id: 4,
-                title: 'App Maintenance',
-                message: 'Scheduled maintenance on Sunday 2AM-4AM',
-                type: 'info',
-                isRead: true,
-                createdAt: new Date(Date.now() - 172800000)
-            }
-        ];
+        const userId = req.user.userId;
+        const parsedLimit = Number.parseInt(req.query.limit, 10);
+        const safeLimit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 50;
+        const parsedOffset = Number.parseInt(req.query.offset, 10);
+        const safeOffset = Number.isFinite(parsedOffset) ? Math.max(parsedOffset, 0) : 0;
 
-        res.json({ notifications });
+        await ensureOnboardingNotifications(userId);
+
+        const result = await pool.query(
+            `SELECT
+                n.notification_id,
+                n.title,
+                n.message,
+                n.notification_type,
+                n.product_id,
+                n.is_read,
+                n.created_at,
+                p.name AS product_name,
+                sc.name AS product_category,
+                cat.name AS parent_category
+            FROM notifications n
+            LEFT JOIN products p ON n.product_id = p.product_id
+            LEFT JOIN product_subcategories sc ON p.subcategory_id = sc.subcategory_id
+            LEFT JOIN category cat ON sc.category_id = cat.category_id
+            WHERE n.user_id = $1
+            ORDER BY n.created_at DESC
+            LIMIT $2 OFFSET $3`,
+            [userId, safeLimit, safeOffset]
+        );
+
+        const notifications = result.rows.map((row) => ({
+            id: row.notification_id,
+            title: row.title,
+            message: row.message,
+            type: row.notification_type,
+            productId: row.product_id,
+            productName: row.product_name || null,
+            productCategory: row.product_category || null,
+            parentCategory: row.parent_category || null,
+            isRead: Boolean(row.is_read),
+            unread: !Boolean(row.is_read),
+            createdAt: row.created_at
+        }));
+
+        const unreadCount = notifications.filter((notification) => notification.unread).length;
+
+        res.json({ notifications, unreadCount });
     } catch (error) {
+        console.error('Get notifications error:', error);
         res.status(500).json({ error: 'Failed to fetch notifications' });
     }
 });
@@ -1750,9 +1838,45 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
 // Mark Notification as Read
 app.put('/api/notifications/:id/read', authenticateToken, async (req, res) => {
     try {
-        res.json({ message: 'Notification marked as read' });
+        const notificationId = Number.parseInt(req.params.id, 10);
+
+        if (!Number.isFinite(notificationId)) {
+            return res.status(400).json({ error: 'Invalid notification ID' });
+        }
+
+        const result = await pool.query(
+            `UPDATE notifications
+             SET is_read = true
+             WHERE notification_id = $1 AND user_id = $2
+             RETURNING notification_id`,
+            [notificationId, req.user.userId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Notification not found' });
+        }
+
+        res.json({ message: 'Notification marked as read', notificationId });
     } catch (error) {
+        console.error('Mark notification read error:', error);
         res.status(500).json({ error: 'Failed to mark notification' });
+    }
+});
+
+// Mark all notifications as read
+app.put('/api/notifications/read-all', authenticateToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `UPDATE notifications
+             SET is_read = true
+             WHERE user_id = $1 AND is_read = false`,
+            [req.user.userId]
+        );
+
+        res.json({ message: 'All notifications marked as read', updatedCount: result.rowCount });
+    } catch (error) {
+        console.error('Mark all notifications read error:', error);
+        res.status(500).json({ error: 'Failed to mark all notifications as read' });
     }
 });
 

@@ -1,12 +1,36 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+const resolveDbUser = () => {
+    const configuredUser = process.env.DB_USER || process.env.PGUSER;
+    if (configuredUser && String(configuredUser).trim()) {
+        return configuredUser;
+    }
+
+    // On many local installs, PostgreSQL role matches the OS account name.
+    return process.env.USER || process.env.LOGNAME || 'postgres';
+};
+
+const resolveDbPassword = () => {
+    if (Object.prototype.hasOwnProperty.call(process.env, 'DB_PASSWORD')) {
+        const password = String(process.env.DB_PASSWORD || '').trim();
+        return password.length > 0 ? password : undefined;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(process.env, 'PGPASSWORD')) {
+        const password = String(process.env.PGPASSWORD || '').trim();
+        return password.length > 0 ? password : undefined;
+    }
+
+    return undefined;
+};
+
 // PostgreSQL connection configuration
 const dbConfig = {
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres',
+    user: resolveDbUser(),
+    password: resolveDbPassword(),
     database: process.env.DB_NAME || 'tulona_db',
     max: 20, // Maximum number of clients in the pool
     idleTimeoutMillis: 30000, // Close idle clients after 30 seconds

@@ -4,8 +4,7 @@ import DataEntryForm from '../components/DataEntryForm';
 import ProductsTable from '../components/ProductsTable';
 import AuditLogs from '../components/AuditLogs';
 import DraftsPanel from '../components/DraftsPanel';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+import { fetchWithApiFallback } from '../../src/utils/apiBase';
 
 const AdminDataEntryPage = ({ onLogout }) => {
     const [activeTab, setActiveTab] = useState('entry');
@@ -33,7 +32,6 @@ const AdminDataEntryPage = ({ onLogout }) => {
     const [logsFilter, setLogsFilter] = useState('all');
 
     const token = localStorage.getItem('adminToken');
-    const apiBaseUrl = API_BASE_URL;
 
     // Fetch statistics
     useEffect(() => {
@@ -72,7 +70,7 @@ const AdminDataEntryPage = ({ onLogout }) => {
 
     const fetchDashboardStats = async () => {
         try {
-            const response = await fetch(`${apiBaseUrl}/admin/operators/dashboard/stats`, {
+            const response = await fetchWithApiFallback('/admin/operators/dashboard/stats', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -95,12 +93,12 @@ const AdminDataEntryPage = ({ onLogout }) => {
     const fetchProducts = async () => {
         setLoading(true);
         try {
-            let url = `${apiBaseUrl}/admin/products?limit=20&offset=0`;
+            let url = '/admin/products?limit=20&offset=0';
             if (filters.searchTerm) url += `&searchTerm=${encodeURIComponent(filters.searchTerm)}`;
             if (filters.status !== 'all') url += `&status=${encodeURIComponent(filters.status)}`;
             if (filters.category !== 'all') url += `&category=${encodeURIComponent(filters.category)}`;
 
-            const response = await fetch(url, {
+            const response = await fetchWithApiFallback(url, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -113,7 +111,7 @@ const AdminDataEntryPage = ({ onLogout }) => {
 
             if (response.ok) {
                 const data = await response.json();
-                setProducts(data.data);
+                setProducts(data.data || data.products || []);
             } else {
                 const errorData = await response.json().catch(() => ({}));
                 setError(errorData.error || 'Failed to fetch products');
@@ -128,7 +126,7 @@ const AdminDataEntryPage = ({ onLogout }) => {
     const fetchDrafts = async () => {
         setDraftsLoading(true);
         try {
-            const response = await fetch(`${apiBaseUrl}/admin/drafts`, {
+            const response = await fetchWithApiFallback('/admin/drafts', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -157,7 +155,7 @@ const AdminDataEntryPage = ({ onLogout }) => {
         setLogsLoading(true);
         try {
             const query = action && action !== 'all' ? `?action=${encodeURIComponent(action)}` : '';
-            const response = await fetch(`${apiBaseUrl}/admin/audit-logs${query}`, {
+            const response = await fetchWithApiFallback(`/admin/audit-logs${query}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -200,7 +198,7 @@ const AdminDataEntryPage = ({ onLogout }) => {
     const handleDeleteProduct = async (productId) => {
         if (window.confirm('Are you sure you want to delete this product?')) {
             try {
-                const response = await fetch(`${apiBaseUrl}/admin/products/${productId}`, {
+                const response = await fetchWithApiFallback(`/admin/products/${productId}`, {
                     method: 'DELETE',
                     headers: {
                         'Authorization': `Bearer ${token}`
@@ -227,7 +225,7 @@ const AdminDataEntryPage = ({ onLogout }) => {
 
     const handlePublishDraft = async (draftId) => {
         try {
-            const response = await fetch(`${apiBaseUrl}/admin/drafts/${draftId}/publish`, {
+            const response = await fetchWithApiFallback(`/admin/drafts/${draftId}/publish`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -256,7 +254,7 @@ const AdminDataEntryPage = ({ onLogout }) => {
 
     const handleDeleteDraft = async (draftId) => {
         try {
-            const response = await fetch(`${apiBaseUrl}/admin/drafts/${draftId}`, {
+            const response = await fetchWithApiFallback(`/admin/drafts/${draftId}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -284,7 +282,7 @@ const AdminDataEntryPage = ({ onLogout }) => {
 
     const handleEditDraft = async (draft) => {
         try {
-            const response = await fetch(`${apiBaseUrl}/admin/products/${draft.product_id}`, {
+            const response = await fetchWithApiFallback(`/admin/products/${draft.product_id}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }

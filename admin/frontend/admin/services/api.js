@@ -1,5 +1,5 @@
 // API Configuration and Base Functions
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+import { fetchWithApiFallback } from '../../src/utils/apiBase';
 
 // Get stored auth token
 export const getAuthToken = () => {
@@ -44,7 +44,7 @@ export const apiRequest = async (endpoint, options = {}) => {
     }
 
     try {
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+        const response = await fetchWithApiFallback(endpoint, config);
 
         if (!response.ok) {
             if (response.status === 401) {

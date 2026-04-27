@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { GoogleOAuthProvider } from '@react-oauth/google'
 import { AuthProvider } from './context/AuthContext'
 import Chatbot from './components/Chatbot'
+import { getGoogleClientId, isGoogleOAuthConfigured } from './utils/googleOAuth'
 import './App.css'
 import HomePage from './pages/HomePage'
 import BankServicesPage from './pages/BankServicesPage'
@@ -14,8 +15,8 @@ import ChangePasswordPage from './pages/ChangePasswordPage'
 import SettingsPage from './pages/SettingsPage'
 
 function App() {
-  const rawGoogleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim()
-  const isGoogleOAuthConfigured = Boolean(rawGoogleClientId) && !rawGoogleClientId.startsWith('YOUR_')
+  const rawGoogleClientId = getGoogleClientId()
+  const googleOAuthConfigured = isGoogleOAuthConfigured()
 
   const appContent = (
     <AuthProvider>
@@ -39,7 +40,7 @@ function App() {
     </AuthProvider>
   )
 
-  if (!isGoogleOAuthConfigured) {
+  if (!googleOAuthConfigured) {
     return appContent
   }
 

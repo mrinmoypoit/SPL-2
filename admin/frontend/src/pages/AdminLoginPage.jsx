@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
+import { fetchWithApiFallback } from '../utils/apiBase'
 import './AdminLoginPage.css'
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
 function AdminLoginPage({ onLoginSuccess }) {
   const [email, setEmail] = useState('admin@tulona.com')
@@ -15,7 +14,7 @@ function AdminLoginPage({ onLoginSuccess }) {
     setError('')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/operators/login`, {
+      const response = await fetchWithApiFallback('/admin/operators/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
