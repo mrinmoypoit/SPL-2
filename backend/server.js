@@ -13,9 +13,84 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+const formatAverageRating = (value) => {
+    const parsed = Number.parseFloat(value);
+    if (!Number.isFinite(parsed)) {
+        return null;
+    }
+
+    return parsed.toFixed(1);
+};
+
+const normalizeRatingValue = (value) => {
+    const formatted = formatAverageRating(value);
+    return formatted === null ? null : Number.parseFloat(formatted);
+};
+
+const ensureFeedbackRatingColumns = async () => {
+    await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS average_rating NUMERIC(3, 1)`);
+    await pool.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS rating_count INTEGER NOT NULL DEFAULT 0`);
+
+    await pool.query(
+        `UPDATE products p
+         SET average_rating = stats.avg_rating,
+             rating_count = stats.total_reviews
+         FROM (
+             SELECT
+                 product_id,
+                 ROUND(AVG(rating)::numeric, 1) AS avg_rating,
+                 COUNT(*)::int AS total_reviews
+             FROM feedback
+             GROUP BY product_id
+         ) stats
+         WHERE p.product_id = stats.product_id`
+    );
+
+    await pool.query(
+        `UPDATE products p
+         SET average_rating = NULL,
+             rating_count = 0
+         WHERE NOT EXISTS (
+             SELECT 1
+             FROM feedback f
+             WHERE f.product_id = p.product_id
+         )`
+    );
+};
+
+const syncProductRatingStats = async (productId, dbClient = pool) => {
+    const statsResult = await dbClient.query(
+        `SELECT
+            ROUND(AVG(rating)::numeric, 1) AS avg_rating,
+            COUNT(*)::int AS total_reviews
+         FROM feedback
+         WHERE product_id = $1`,
+        [productId]
+    );
+
+    const row = statsResult.rows[0] || {};
+    const averageRatingNumber = normalizeRatingValue(row.avg_rating);
+    const totalReviews = Number.parseInt(row.total_reviews, 10) || 0;
+
+    await dbClient.query(
+        `UPDATE products
+         SET average_rating = $1,
+             rating_count = $2
+         WHERE product_id = $3`,
+        [averageRatingNumber, totalReviews, productId]
+    );
+
+    return {
+        averageRating: formatAverageRating(averageRatingNumber),
+        totalReviews
+    };
+};
+
 pool.query('SELECT NOW()')
-    .then(() => {
+    .then(async () => {
         console.log('Database connected successfully');
+        await ensureFeedbackRatingColumns();
+        console.log('✅ Feedback rating columns are ready');
     })
     .catch(err => {
         console.error('Database connection failed:', err.message);
@@ -82,6 +157,73 @@ const ensureOnboardingNotifications = async (userId) => {
             type: notification.type
         });
     }
+};
+
+const resolveAuthenticatedUserRecord = async (authUser = {}, dbClient = pool) => {
+    const parsedUserId = Number.parseInt(authUser?.userId, 10);
+    if (Number.isFinite(parsedUserId)) {
+        const byIdResult = await dbClient.query(
+            `SELECT user_id, name, email, phone_number, profession, monthly_income, is_verified
+             FROM users
+             WHERE user_id = $1`,
+            [parsedUserId]
+        );
+
+        if (byIdResult.rows.length > 0) {
+            return byIdResult.rows[0];
+        }
+    }
+
+    const email = String(authUser?.email || '').trim().toLowerCase();
+    if (!email) {
+        return null;
+    }
+
+    const byEmailResult = await dbClient.query(
+        `SELECT user_id, name, email, phone_number, profession, monthly_income, is_verified
+         FROM users
+         WHERE LOWER(email) = LOWER($1)
+         LIMIT 1`,
+        [email]
+    );
+
+    if (byEmailResult.rows.length > 0) {
+        const existingUser = byEmailResult.rows[0];
+        const requestedName = String(authUser?.name || '').trim();
+
+        await dbClient.query(
+            `UPDATE users
+             SET name = COALESCE(NULLIF($1, ''), name),
+                 is_verified = true,
+                 updated_at = NOW()
+             WHERE user_id = $2`,
+            [requestedName, existingUser.user_id]
+        );
+
+        const refreshedUser = await dbClient.query(
+            `SELECT user_id, name, email, phone_number, profession, monthly_income, is_verified
+             FROM users
+             WHERE user_id = $1`,
+            [existingUser.user_id]
+        );
+
+        return refreshedUser.rows[0] || existingUser;
+    }
+
+    const displayName = String(authUser?.name || '').trim() || 'Google User';
+    const passwordHash = await bcryptjs.hash(
+        `oauth:${email}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+        10
+    );
+
+    const insertedResult = await dbClient.query(
+        `INSERT INTO users (name, email, password_hash, profession, monthly_income, is_verified)
+         VALUES ($1, $2, $3, $4, $5, true)
+         RETURNING user_id, name, email, phone_number, profession, monthly_income, is_verified`,
+        [displayName, email, passwordHash, 'professional', 0]
+    );
+
+    return insertedResult.rows[0] || null;
 };
 
 const authenticateToken = (req, res, next) => {
@@ -325,19 +467,42 @@ app.post('/api/auth/google', async (req, res) => {
         }
 
         try {
+            const normalizeJwtPart = (value = '') => {
+                const normalized = String(value).replace(/-/g, '+').replace(/_/g, '/');
+                const padLength = (4 - (normalized.length % 4)) % 4;
+                return normalized + '='.repeat(padLength);
+            };
+
             // Decode the payload (second part)
-            const payloadDecoded = Buffer.from(parts[1], 'base64').toString('utf-8');
+            const payloadDecoded = Buffer.from(normalizeJwtPart(parts[1]), 'base64').toString('utf-8');
             const googlePayload = JSON.parse(payloadDecoded);
+            const googleEmail = String(googlePayload?.email || '').trim().toLowerCase();
+
+            if (!googleEmail) {
+                return res.status(400).json({ error: 'Google account email is required' });
+            }
+
+            const dbUser = await resolveAuthenticatedUserRecord(
+                {
+                    email: googleEmail,
+                    name: googlePayload?.name || 'Google User'
+                },
+                pool
+            );
+
+            if (!dbUser) {
+                return res.status(500).json({ error: 'Failed to resolve Google user' });
+            }
 
             // Extract user information from Google token
             const user = {
-                userId: Math.floor(Math.random() * 1000000),
-                name: googlePayload.name || 'Google User',
-                email: googlePayload.email,
-                phone: '',
-                profession: 'professional',
-                monthlyIncome: 0,
-                isVerified: true,
+                userId: dbUser.user_id,
+                name: dbUser.name || googlePayload.name || 'Google User',
+                email: dbUser.email || googleEmail,
+                phone: dbUser.phone_number || '',
+                profession: dbUser.profession || 'professional',
+                monthlyIncome: dbUser.monthly_income || 0,
+                isVerified: Boolean(dbUser.is_verified),
                 picture: googlePayload.picture, // Google profile picture
                 role: 'user'  // Default role is user
             };
@@ -348,6 +513,12 @@ app.post('/api/auth/google', async (req, res) => {
                 JWT_SECRET,
                 { expiresIn: '7d' }
             );
+
+            try {
+                await ensureOnboardingNotifications(user.userId);
+            } catch (notificationError) {
+                console.warn('Failed to create onboarding notifications for Google user:', notificationError.message);
+            }
 
             console.log('User authenticated with Google:', user.email);
 
@@ -594,6 +765,8 @@ const queryProducts = async ({ category = 'all', search = '', limit = 20, offset
             p.product_id as id, 
             p.name, 
             p.description,
+            p.average_rating,
+            p.rating_count,
             c.name as company, 
             c.website_url as website_url,
             sc.name as category,
@@ -638,7 +811,7 @@ const queryProducts = async ({ category = 'all', search = '', limit = 20, offset
         countQueryStr += ` AND p.name ILIKE $${queryParams.length}`;
     }
 
-    queryStr += ` GROUP BY p.product_id, c.name, c.website_url, c.metrics, sc.name, cat.name`;
+    queryStr += ` GROUP BY p.product_id, p.average_rating, p.rating_count, c.name, c.website_url, c.metrics, sc.name, cat.name`;
     queryStr += ` ORDER BY p.product_id DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
 
     const parsedLimit = Number.parseInt(limit, 10);
@@ -651,21 +824,15 @@ const queryProducts = async ({ category = 'all', search = '', limit = 20, offset
     const result = await pool.query(queryStr, limitParams);
 
     const products = result.rows.map((row) => {
+        const { average_rating, rating_count, ...productRow } = row;
         const features = extractProductFeatures(row.attributes);
-        let rating;
-
-        try {
-            const metricsObject = typeof row.metrics === 'string' ? JSON.parse(row.metrics) : row.metrics;
-            if (metricsObject && metricsObject.rating !== undefined && metricsObject.rating !== null) {
-                rating = metricsObject.rating;
-            }
-        } catch {
-            rating = undefined;
-        }
+        const rating = formatAverageRating(average_rating);
+        const ratingCount = Number.parseInt(rating_count, 10) || 0;
 
         return {
-            ...row,
+            ...productRow,
             rating,
+            ratingCount,
             features,
             attributes: row.attributes || []
         };
@@ -812,23 +979,6 @@ const getNumericValueFromText = (value = '') => {
 
     const parsed = Number.parseFloat(match[0]);
     return Number.isFinite(parsed) ? parsed : null;
-};
-
-const parseCompanyMetrics = (value = null) => {
-    if (!value) {
-        return {};
-    }
-
-    if (typeof value === 'object' && !Array.isArray(value)) {
-        return value;
-    }
-
-    try {
-        const parsed = JSON.parse(String(value));
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-        return {};
-    }
 };
 
 const PRICE_LIKE_ATTRIBUTE_NAMES = [
@@ -1018,6 +1168,7 @@ const getAiResponsePayload = async ({ question, limit = 60 }) => {
             p.product_id as id,
             p.name,
             p.description,
+            p.average_rating,
             c.name as company,
             sc.name as category,
             cat.name as parent_category,
@@ -1057,7 +1208,7 @@ const getAiResponsePayload = async ({ question, limit = 60 }) => {
         }
     }
 
-    productQuery += ` GROUP BY p.product_id, c.name, c.metrics, sc.name, cat.name ORDER BY p.product_id DESC LIMIT $${params.length + 1}`;
+    productQuery += ` GROUP BY p.product_id, p.average_rating, c.name, c.metrics, sc.name, cat.name ORDER BY p.product_id DESC LIMIT $${params.length + 1}`;
     params.push(safeLimit);
 
     const result = await pool.query(productQuery, params);
@@ -1065,8 +1216,7 @@ const getAiResponsePayload = async ({ question, limit = 60 }) => {
     const scored = result.rows
         .map((product) => {
             const features = extractProductFeatures(product.attributes || []);
-            const metricsObject = parseCompanyMetrics(product.metrics);
-            const rating = getNumericValueFromText(metricsObject?.rating);
+            const rating = getNumericValueFromText(product.average_rating);
             return scoreProductForQuestion({
                 product: {
                     ...product,
@@ -1242,6 +1392,8 @@ app.get('/api/products/:id', async (req, res) => {
                 p.product_id as id,
                 p.name,
                 p.description,
+                p.average_rating,
+                p.rating_count,
                 c.name as company,
                 c.website_url as website_url,
                 sc.name as category,
@@ -1263,7 +1415,7 @@ app.get('/api/products/:id', async (req, res) => {
             LEFT JOIN category cat ON sc.category_id = cat.category_id
             LEFT JOIN product_attributes pa ON p.product_id = pa.product_id
             WHERE p.product_id = $1
-            GROUP BY p.product_id, c.name, c.website_url, c.metrics, sc.name, cat.name
+            GROUP BY p.product_id, p.average_rating, p.rating_count, c.name, c.website_url, c.metrics, sc.name, cat.name
         `;
 
         const result = await pool.query(query, [productId]);
@@ -1274,16 +1426,9 @@ app.get('/api/products/:id', async (req, res) => {
 
         const row = result.rows[0];
         const features = extractProductFeatures(row.attributes);
-        let rating;
-
-        try {
-            const metricsObject = typeof row.metrics === 'string' ? JSON.parse(row.metrics) : row.metrics;
-            if (metricsObject && metricsObject.rating !== undefined && metricsObject.rating !== null) {
-                rating = metricsObject.rating;
-            }
-        } catch {
-            rating = undefined;
-        }
+        const { average_rating, rating_count, ...productRow } = row;
+        const rating = formatAverageRating(average_rating);
+        const ratingCount = Number.parseInt(rating_count, 10) || 0;
 
         const details = (row.attributes || []).reduce((accumulator, attr) => {
             const name = attr?.attribute_name;
@@ -1299,8 +1444,9 @@ app.get('/api/products/:id', async (req, res) => {
 
         res.json({
             product: {
-                ...row,
+                ...productRow,
                 rating,
+                ratingCount,
                 features,
                 details,
                 attributes: row.attributes || []
@@ -1885,7 +2031,22 @@ app.put('/api/notifications/read-all', authenticateToken, async (req, res) => {
 // Get all feedback for a product
 app.get('/api/feedback/:productId', async (req, res) => {
     try {
-        const { productId } = req.params;
+        const productId = Number.parseInt(req.params.productId, 10);
+
+        if (!Number.isFinite(productId)) {
+            return res.status(400).json({ error: 'Invalid product ID' });
+        }
+
+        const productStatsResult = await pool.query(
+            `SELECT product_id, average_rating, rating_count
+             FROM products
+             WHERE product_id = $1`,
+            [productId]
+        );
+
+        if (productStatsResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
 
         const query = `
             SELECT 
@@ -1903,22 +2064,15 @@ app.get('/api/feedback/:productId', async (req, res) => {
         `;
 
         const result = await pool.query(query, [productId]);
-        
-        // Calculate average rating
-        const avgResult = await pool.query(
-            `SELECT AVG(rating) as avg_rating, COUNT(*) as total_reviews 
-             FROM feedback WHERE product_id = $1`,
-            [productId]
-        );
-
-        const avgRating = avgResult.rows[0]?.avg_rating ? parseFloat(avgResult.rows[0].avg_rating).toFixed(1) : null;
-        const totalReviews = parseInt(avgResult.rows[0]?.total_reviews || 0);
+        const productStats = productStatsResult.rows[0];
+        const avgRating = formatAverageRating(productStats.average_rating);
+        const totalReviews = Number.parseInt(productStats.rating_count, 10) || 0;
 
         res.json({
             feedback: result.rows,
             stats: {
                 averageRating: avgRating,
-                totalReviews: totalReviews
+                totalReviews
             }
         });
     } catch (error) {
@@ -1929,6 +2083,8 @@ app.get('/api/feedback/:productId', async (req, res) => {
 
 // Submit feedback for a product (requires authentication)
 app.post('/api/feedback', authenticateToken, async (req, res) => {
+    const client = await pool.connect();
+
     try {
         console.log('📝 Feedback submission attempt:', {
             userId: req.user?.userId,
@@ -1937,30 +2093,43 @@ app.post('/api/feedback', authenticateToken, async (req, res) => {
         });
 
         const { productId, rating, reviewText } = req.body;
+        const parsedProductId = Number.parseInt(productId, 10);
+        const parsedRating = Number.parseInt(rating, 10);
 
-        if (!productId || !rating) {
+        if (!Number.isFinite(parsedProductId) || !Number.isFinite(parsedRating)) {
             return res.status(400).json({ error: 'Product ID and rating are required' });
         }
 
-        if (rating < 1 || rating > 5) {
+        if (parsedRating < 1 || parsedRating > 5) {
             return res.status(400).json({ error: 'Rating must be between 1 and 5' });
         }
 
+        await client.query('BEGIN');
+
         // Check if product exists
-        const productCheck = await pool.query(
+        const productCheck = await client.query(
             'SELECT 1 FROM products WHERE product_id = $1',
-            [productId]
+            [parsedProductId]
         );
 
         if (productCheck.rows.length === 0) {
-            console.warn(`⚠️ Product ${productId} not found in database`);
+            await client.query('ROLLBACK');
+            console.warn(`⚠️ Product ${parsedProductId} not found in database`);
             return res.status(404).json({ error: 'Product not found in database' });
         }
 
+        const resolvedUser = await resolveAuthenticatedUserRecord(req.user, client);
+        if (!resolvedUser || !Number.isFinite(Number.parseInt(resolvedUser.user_id, 10))) {
+            await client.query('ROLLBACK');
+            return res.status(401).json({ error: 'Authenticated user account was not found' });
+        }
+
+        const feedbackUserId = Number.parseInt(resolvedUser.user_id, 10);
+
         // Check if user already has feedback for this product
-        const existingFeedback = await pool.query(
+        const existingFeedback = await client.query(
             'SELECT feedback_id FROM feedback WHERE user_id = $1 AND product_id = $2',
-            [req.user.userId, productId]
+            [feedbackUserId, parsedProductId]
         );
 
         let feedbackId;
@@ -1969,72 +2138,113 @@ app.post('/api/feedback', authenticateToken, async (req, res) => {
         if (existingFeedback.rows.length > 0) {
             // Update existing feedback
             feedbackId = existingFeedback.rows[0].feedback_id;
-            await pool.query(
+            await client.query(
                 `UPDATE feedback 
                  SET rating = $1, review_text = $2, created_at = CURRENT_TIMESTAMP 
                  WHERE feedback_id = $3 AND user_id = $4`,
-                [rating, reviewText || null, feedbackId, req.user.userId]
+                [parsedRating, reviewText || null, feedbackId, feedbackUserId]
             );
             message = 'Feedback updated successfully';
         } else {
             // Insert new feedback
-            const result = await pool.query(
+            const result = await client.query(
                 `INSERT INTO feedback (user_id, product_id, rating, review_text, created_at)
                  VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
                  RETURNING feedback_id`,
-                [req.user.userId, productId, rating, reviewText || null]
+                [feedbackUserId, parsedProductId, parsedRating, reviewText || null]
             );
             feedbackId = result.rows[0].feedback_id;
             message = 'Feedback submitted successfully';
         }
 
-        console.log(`✅ Feedback ${existingFeedback.rows.length > 0 ? 'updated' : 'submitted'} for product ${productId} by user ${req.user.userId}`);
+        const stats = await syncProductRatingStats(parsedProductId, client);
+        await client.query('COMMIT');
 
-        res.status(201).json({
+        console.log(
+            `✅ Feedback ${existingFeedback.rows.length > 0 ? 'updated' : 'submitted'} for product ${parsedProductId} by user ${feedbackUserId}`
+        );
+
+        res.status(existingFeedback.rows.length > 0 ? 200 : 201).json({
             message,
             feedback: {
                 id: feedbackId,
-                userId: req.user.userId,
-                productId: productId,
-                rating: rating,
+                userId: feedbackUserId,
+                productId: parsedProductId,
+                rating: parsedRating,
                 reviewText: reviewText || null,
-                userName: req.user.name
-            }
+                userName: resolvedUser.name || req.user.name
+            },
+            stats
         });
     } catch (error) {
+        try {
+            await client.query('ROLLBACK');
+        } catch (rollbackError) {
+            console.error('Failed to rollback feedback transaction:', rollbackError.message);
+        }
         console.error('❌ Submit feedback error:', error);
         res.status(500).json({ error: 'Failed to submit feedback', details: error.message });
+    } finally {
+        client.release();
     }
 });
 
 // Delete feedback (only own feedback)
 app.delete('/api/feedback/:feedbackId', authenticateToken, async (req, res) => {
+    const client = await pool.connect();
+
     try {
-        const { feedbackId } = req.params;
+        const feedbackId = Number.parseInt(req.params.feedbackId, 10);
+
+        if (!Number.isFinite(feedbackId)) {
+            return res.status(400).json({ error: 'Invalid feedback ID' });
+        }
+
+        await client.query('BEGIN');
+        const resolvedUser = await resolveAuthenticatedUserRecord(req.user, client);
+        if (!resolvedUser || !Number.isFinite(Number.parseInt(resolvedUser.user_id, 10))) {
+            await client.query('ROLLBACK');
+            return res.status(401).json({ error: 'Authenticated user account was not found' });
+        }
+
+        const feedbackUserId = Number.parseInt(resolvedUser.user_id, 10);
 
         // Check if feedback exists and belongs to the user
-        const feedbackCheck = await pool.query(
-            'SELECT user_id FROM feedback WHERE feedback_id = $1',
+        const feedbackCheck = await client.query(
+            'SELECT user_id, product_id FROM feedback WHERE feedback_id = $1',
             [feedbackId]
         );
 
         if (feedbackCheck.rows.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ error: 'Feedback not found' });
         }
 
-        if (feedbackCheck.rows[0].user_id !== req.user.userId) {
+        if (Number(feedbackCheck.rows[0].user_id) !== Number(feedbackUserId)) {
+            await client.query('ROLLBACK');
             return res.status(403).json({ error: 'You can only delete your own feedback' });
         }
 
+        const productId = feedbackCheck.rows[0].product_id;
+
         // Delete the feedback
-        await pool.query('DELETE FROM feedback WHERE feedback_id = $1', [feedbackId]);
+        await client.query('DELETE FROM feedback WHERE feedback_id = $1', [feedbackId]);
+        const stats = await syncProductRatingStats(productId, client);
+        await client.query('COMMIT');
 
-        console.log(`✅ Feedback ${feedbackId} deleted by user ${req.user.userId}`);
+        console.log(`✅ Feedback ${feedbackId} deleted by user ${feedbackUserId}`);
 
-        res.json({ message: 'Feedback deleted successfully' });
+        res.json({ message: 'Feedback deleted successfully', stats });
     } catch (error) {
+        try {
+            await client.query('ROLLBACK');
+        } catch (rollbackError) {
+            console.error('Failed to rollback feedback delete transaction:', rollbackError.message);
+        }
         console.error('Delete feedback error:', error);
         res.status(500).json({ error: 'Failed to delete feedback', details: error.message });
+    } finally {
+        client.release();
     }
 });
 

@@ -23,11 +23,11 @@ INSERT INTO product_subcategories (category_id, name, description) VALUES
 
 -- Insert Sample Companies
 INSERT INTO companies (name, description, website_url, metrics) VALUES
-    ('Dutch Bangla Bank', 'Leading private bank in Bangladesh', 'https://www.dutchbanglabank.com', '{"rating": 4.5, "customers": 50000}'),
-    ('BRAC Bank', 'Premier SME focused bank', 'https://www.bracbank.com', '{"rating": 4.3, "customers": 45000}'),
-    ('City Bank', 'International standard banking', 'https://www.thecitybank.com', '{"rating": 4.2, "customers": 40000}'),
-    ('Eastern Bank', 'Trusted banking partner', 'https://www.ebl.com.bd', '{"rating": 4.4, "customers": 35000}'),
-    ('IFIC Bank', 'Islamic banking solutions', 'https://www.ificbank.com.bd', '{"rating": 4.1, "customers": 30000}');
+    ('Dutch Bangla Bank', 'Leading private bank in Bangladesh', 'https://www.dutchbanglabank.com', '{"customers": 50000}'),
+    ('BRAC Bank', 'Premier SME focused bank', 'https://www.bracbank.com', '{"customers": 45000}'),
+    ('City Bank', 'International standard banking', 'https://www.thecitybank.com', '{"customers": 40000}'),
+    ('Eastern Bank', 'Trusted banking partner', 'https://www.ebl.com.bd', '{"customers": 35000}'),
+    ('IFIC Bank', 'Islamic banking solutions', 'https://www.ificbank.com.bd', '{"customers": 30000}');
 
 -- Insert Sample Products
 INSERT INTO products (company_id, subcategory_id, name, description) VALUES

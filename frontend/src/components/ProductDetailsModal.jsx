@@ -229,7 +229,17 @@ function ProductDetailsModal({ isOpen, product, onClose }) {
               <h3 className="section-title">Additional Details</h3>
               <div className="additional-details">
                 {Object.entries(otherDetails)
-                  .filter(([key, value]) => value !== null && value !== undefined && value !== '' && key !== 'productId' && key !== 'product_id')
+                  .filter(
+                    ([key, value]) =>
+                      value !== null &&
+                      value !== undefined &&
+                      value !== '' &&
+                      key !== 'productId' &&
+                      key !== 'product_id' &&
+                      key !== 'average_rating' &&
+                      key !== 'rating_count' &&
+                      key !== 'ratingCount'
+                  )
                   .map(([key, value]) => {
                     const parsedValue = parseStructuredValue(value)
                     const formattedStructuredValue = renderStructuredDetails(parsedValue, key)

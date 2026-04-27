@@ -106,16 +106,7 @@ const truncateText = (value = '', maxLength = 220) => {
 
 const getRatingFromProduct = (product = {}) => {
     const directRating = toNumber(product.rating);
-    if (directRating !== null) {
-        return directRating;
-    }
-
-    const metricsObject = parseJsonSafely(product.metrics, null);
-    if (!metricsObject || typeof metricsObject !== 'object' || Array.isArray(metricsObject)) {
-        return null;
-    }
-
-    return toNumber(metricsObject.rating);
+    return directRating !== null ? directRating : null;
 };
 
 const toPromptProducts = (products = []) => {

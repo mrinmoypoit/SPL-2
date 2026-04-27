@@ -74,6 +74,8 @@ CREATE TABLE products (
     subcategory_id INT REFERENCES product_subcategories(subcategory_id) ON DELETE SET NULL,
     name VARCHAR(255) NOT NULL,
     description TEXT,
+    average_rating DECIMAL(3,1),
+    rating_count INT DEFAULT 0,
     created_at DATETIME2 DEFAULT SYSDATETIME(),
     updated_at DATETIME2 DEFAULT SYSDATETIME()
 );
@@ -167,6 +169,7 @@ CREATE INDEX idx_notifications_user ON notifications(user_id);
 CREATE INDEX idx_notifications_unread ON notifications(user_id, is_read);
 CREATE INDEX idx_feedback_product ON feedback(product_id);
 CREATE INDEX idx_feedback_user ON feedback(user_id);
+CREATE UNIQUE INDEX idx_feedback_user_product ON feedback(user_id, product_id);
 CREATE INDEX idx_chatbot_user ON chatbot_conversations(user_id);
 CREATE INDEX idx_logs_operator ON data_change_logs(operator_id);
 CREATE INDEX idx_logs_product ON data_change_logs(product_id);

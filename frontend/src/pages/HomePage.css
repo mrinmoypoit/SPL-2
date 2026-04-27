@@ -337,7 +337,7 @@ html {
 
 /* Categories */
 .categories {
-    padding: 6rem 0;
+    padding: 5.5rem 0 3.6rem;
     margin-top: -4rem;
     position: relative;
     z-index: 10;
@@ -347,21 +347,37 @@ html {
     text-align: center;
     font-size: 3rem;
     color: var(--dark);
-    margin-bottom: 4rem;
+    margin: 0 auto 3.4rem;
+    padding: 0.4rem 1rem 1rem;
     font-weight: 800;
     position: relative;
+    line-height: 1.2;
 }
 
 .section-title::after {
     content: '';
     position: absolute;
-    bottom: -15px;
+    bottom: 0;
     left: 50%;
     transform: translateX(-50%);
     width: 80px;
     height: 4px;
     background: linear-gradient(90deg, var(--primary), var(--accent));
     border-radius: 2px;
+}
+
+.categories .section-title.explore-services-title {
+    color: #0b2a57 !important;
+    text-shadow: none;
+    font-weight: 900;
+    margin-bottom: 3.7rem;
+}
+
+.categories .section-title.explore-services-title::after {
+    width: 130px;
+    height: 5px;
+    background: linear-gradient(90deg, #00336f 0%, #0066cc 55%, #00aeea 100%);
+    box-shadow: 0 4px 14px rgba(0, 78, 156, 0.45);
 }
 
 .category-grid {
@@ -549,14 +565,53 @@ html {
     transform: translateX(5px);
 }
 
+/* About */
+.about-section {
+    padding: 1rem 0 5rem;
+}
+
+.about-card {
+    background: linear-gradient(135deg, #f8fbff 0%, #edf5ff 100%);
+    border: 1px solid rgba(0, 102, 204, 0.18);
+    border-radius: 20px;
+    padding: 2.4rem 2.1rem;
+    box-shadow: 0 12px 32px rgba(0, 54, 120, 0.08);
+    text-align: center;
+}
+
+.about-section .section-title.about-title {
+    margin-bottom: 1.7rem;
+    padding-bottom: 0.85rem;
+    color: #061f44 !important;
+    font-weight: 900;
+    text-shadow: none;
+}
+
+.about-section .section-title.about-title::after {
+    width: 110px;
+    height: 5px;
+    background: linear-gradient(90deg, #0a2a57 0%, #1454a3 60%, #2a8cff 100%);
+    box-shadow: 0 4px 12px rgba(10, 64, 138, 0.35);
+}
+
+.about-message {
+    font-size: 1.2rem;
+    line-height: 1.8;
+    color: #1f3b63;
+    max-width: 760px;
+    margin: 0 auto;
+    font-weight: 600;
+}
+
 /* Features */
 .features {
     background: linear-gradient(135deg, #f8fafc 0%, #e4e9f2 100%);
-    padding: 6rem 0;
+    padding: 4.2rem 0 6rem;
 }
 
 .features .section-title {
     color: var(--dark);
+    margin-bottom: 3.2rem;
 }
 
 .feature-grid {
@@ -618,12 +673,65 @@ html {
     background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
     color: white;
     text-align: center;
-    padding: 2.5rem 0;
+    padding: 3rem 0 2.5rem;
 }
 
 .footer p {
     opacity: 0.9;
     font-size: 1rem;
+}
+
+.contact-section {
+    margin-bottom: 2rem;
+}
+
+.contact-title {
+    font-size: 1.9rem;
+    font-weight: 800;
+    margin-bottom: 1.4rem;
+    color: #ffffff;
+}
+
+.contact-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.2rem;
+    text-align: left;
+}
+
+.contact-card {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 14px;
+    padding: 1.2rem 1.3rem;
+}
+
+.developer-name {
+    margin-bottom: 0.7rem;
+    font-size: 1.15rem;
+    color: #ffffff;
+}
+
+.contact-item {
+    margin: 0.4rem 0;
+    color: rgba(241, 245, 249, 0.95);
+    font-size: 0.98rem;
+}
+
+.contact-item span {
+    font-weight: 700;
+    color: #c7e0ff;
+}
+
+.contact-item a {
+    color: #ffffff;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s ease;
+}
+
+.contact-item a:hover {
+    border-color: rgba(255, 255, 255, 0.85);
 }
 
 /* Responsive */
@@ -658,7 +766,21 @@ html {
         grid-template-columns: 1fr;
     }
 
+    .about-card {
+        padding: 1.7rem 1.1rem;
+    }
+
+    .about-message {
+        font-size: 1.05rem;
+    }
+
+    .contact-grid {
+        grid-template-columns: 1fr;
+    }
+
     .section-title {
         font-size: 2rem;
+        margin-bottom: 2.5rem;
+        padding: 0.2rem 0.7rem 0.8rem;
     }
 }

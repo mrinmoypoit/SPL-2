@@ -369,6 +369,7 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
                     const parentCategory = product.parent_category || product.parentCategory
                     const features = Array.isArray(product.features) ? product.features.slice(0, 4) : []
                     const websiteUrl = resolveWebsiteUrl(product)
+                    const hasRating = product.rating !== null && product.rating !== undefined && product.rating !== ''
 
                     return (
                       <article key={productId} className="bank-product-card">
@@ -379,7 +380,11 @@ function ProductCategoryPage({ title, subtitle, aliases = [] }) {
 
                         <div className="bank-product-meta">
                           <span className="bank-product-company">{product.company || product.companyName || product.company_name || 'N/A'}</span>
-                          {product.rating ? <span className="bank-product-rating">Rating: {product.rating}</span> : <span className="bank-product-rating">ID: {productId}</span>}
+                          {hasRating ? (
+                            <span className="bank-product-rating">Rating: {product.rating}</span>
+                          ) : (
+                            <span className="bank-product-rating">No ratings yet</span>
+                          )}
                         </div>
 
                         {parentCategory && <p className="bank-product-parent">Main category: {parentCategory}</p>}

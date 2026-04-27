@@ -73,13 +73,17 @@ function ProductFeedback({ productId, isLoggedIn, userName }) {
 
       console.log('✅ Feedback submitted:', result);
 
-      setSuccess('✅ Feedback submitted successfully!')
+      setSuccess(`✅ ${result.message || 'Feedback submitted successfully!'}`)
       setUserRating(0)
       setUserReview('')
 
-      // Refresh feedback list
+      if (result?.stats) {
+        setAverageRating(result.stats.averageRating ?? null)
+        setTotalReviews(result.stats.totalReviews || 0)
+      }
+
+      await fetchFeedback()
       setTimeout(() => {
-        fetchFeedback()
         setSuccess(null)
       }, 1500)
     } catch (err) {
@@ -112,10 +116,16 @@ function ProductFeedback({ productId, isLoggedIn, userName }) {
     }
 
     try {
-      await feedbackAPI.deleteFeedback(feedbackId)
+      const result = await feedbackAPI.deleteFeedback(feedbackId)
       setSuccess('Feedback deleted successfully!')
+
+      if (result?.stats) {
+        setAverageRating(result.stats.averageRating ?? null)
+        setTotalReviews(result.stats.totalReviews || 0)
+      }
+
+      await fetchFeedback()
       setTimeout(() => {
-        fetchFeedback()
         setSuccess(null)
       }, 1500)
     } catch (err) {

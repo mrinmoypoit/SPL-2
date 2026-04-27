@@ -1,10 +1,17 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import './HomePage.css'
 
 function HomePage() {
   const navigate = useNavigate()
+  const exploreSectionRef = useRef(null)
+
+  const handleGetStartedClick = () => {
+    if (exploreSectionRef.current) {
+      exploreSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
 
   const handleBankingClick = () => {
     navigate('/bank-services')
@@ -33,7 +40,7 @@ function HomePage() {
             decision-making solutions
           </p>
           <div className="hero-buttons">
-            <button className="get-started-btn">
+            <button className="get-started-btn" onClick={handleGetStartedClick}>
               <span>Get Started</span>
               <i className="fas fa-arrow-right"></i>
             </button>
@@ -46,9 +53,9 @@ function HomePage() {
       </section>
 
       {/* Categories */}
-      <section className="categories">
+      <section id="explore-services" className="categories" ref={exploreSectionRef}>
         <div className="container">
-          <h2 className="section-title">Explore Services</h2>
+          <h2 className="section-title explore-services-title">Explore Services</h2>
           <div className="category-grid">
             {/* Banking */}
             <div className="category-card banking-card" onClick={handleBankingClick}>
@@ -135,9 +142,51 @@ function HomePage() {
         </div>
       </section>
 
+      {/* About */}
+      <section id="about" className="about-section">
+        <div className="container">
+          <div className="about-card">
+            <h2 className="section-title about-title">About Us</h2>
+            <p className="about-message">
+              Project of Sadia and Mrinmoy. Which will help you find the best deal possible.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* Footer */}
       <footer id="contact" className="footer">
         <div className="container">
+          <div className="contact-section">
+            <h3 className="contact-title">Contact Developers</h3>
+
+            <div className="contact-grid">
+              <div className="contact-card">
+                <h4 className="developer-name">Sadia Akter Snigdha</h4>
+                <p className="contact-item">
+                  <span>Contact no:</span>{' '}
+                  <a href="tel:01848156590">01848156590</a>
+                </p>
+                <p className="contact-item">
+                  <span>Mail:</span>{' '}
+                  <a href="mailto:bsse1513@iit.du.ac.bd">bsse1513@iit.du.ac.bd</a>
+                </p>
+              </div>
+
+              <div className="contact-card">
+                <h4 className="developer-name">Mrinmoy Poit</h4>
+                <p className="contact-item">
+                  <span>Contact no:</span>{' '}
+                  <a href="tel:01751285949">01751285949</a>
+                </p>
+                <p className="contact-item">
+                  <span>Mail:</span>{' '}
+                  <a href="mailto:bsse1524@iit.du.ac.bd">bsse1524@iit.du.ac.bd</a>
+                </p>
+              </div>
+            </div>
+          </div>
+
           <p>&copy; 2026 TULONA. All rights reserved.</p>
         </div>
       </footer>

@@ -12,7 +12,10 @@ const EXCLUDED_COMPARE_KEYS = new Set([
   'company_name',
   'category',
   'subcategoryName',
-  'subcategory_name'
+  'subcategory_name',
+  'average_rating',
+  'rating_count',
+  'ratingCount'
 ])
 
 const formatKeyLabel = (value = '') =>
@@ -186,12 +189,22 @@ function ProductComparisonModal({ isOpen, products, onClose, onRemoveProduct }) 
 
         const parsedMetrics = parseStructuredValue(product.metrics)
         if (parsedMetrics && typeof parsedMetrics === 'object' && !Array.isArray(parsedMetrics)) {
-          Object.entries(parsedMetrics).forEach(([key, value]) => setMetricValue(key, value))
+          Object.entries(parsedMetrics).forEach(([key, value]) => {
+            if (normalizeMetricKey(key) === 'rating') {
+              return
+            }
+            setMetricValue(key, value)
+          })
         }
 
         const parsedDetails = parseStructuredValue(product.details)
         if (parsedDetails && typeof parsedDetails === 'object' && !Array.isArray(parsedDetails)) {
-          Object.entries(parsedDetails).forEach(([key, value]) => setMetricValue(key, value))
+          Object.entries(parsedDetails).forEach(([key, value]) => {
+            if (normalizeMetricKey(key) === 'rating') {
+              return
+            }
+            setMetricValue(key, value)
+          })
         }
 
         const parsedAttributes = parseStructuredValue(product.attributes)
@@ -203,6 +216,9 @@ function ProductComparisonModal({ isOpen, products, onClose, onRemoveProduct }) 
 
             const attributeName = item.attribute_name || item.name
             const attributeValue = item.attribute_value ?? item.value
+            if (normalizeMetricKey(attributeName) === 'rating') {
+              return
+            }
             setMetricValue(attributeName, attributeValue)
           })
         }
@@ -587,7 +603,7 @@ function ProductComparisonModal({ isOpen, products, onClose, onRemoveProduct }) 
           datasets: [
             {
               label: 'Rating (out of 5)',
-              data: normalizedProducts.map((p) => extractNumeric(p.rating) || 4),
+              data: normalizedProducts.map((p) => extractNumeric(p.rating) || 0),
               backgroundColor: (context) => getBarGradient(context, 'rgba(33, 150, 243, 0.2)', 'rgba(33, 150, 243, 0.95)'),
               borderColor: 'rgba(21, 101, 192, 0.95)',
               borderWidth: 1,
