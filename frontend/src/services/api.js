@@ -250,3 +250,27 @@ export const aiAPI = {
     return donePayload;
   }
 };
+
+export const feedbackAPI = {
+  getProductFeedback: async (productId) => {
+    const response = await fetch(`${API_BASE_URL}/feedback/${productId}`);
+    return handleResponse(response);
+  },
+
+  submitFeedback: async (feedbackData) => {
+    const response = await fetch(`${API_BASE_URL}/feedback`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(feedbackData)
+    });
+    return handleResponse(response);
+  },
+
+  deleteFeedback: async (feedbackId) => {
+    const response = await fetch(`${API_BASE_URL}/feedback/${feedbackId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return handleResponse(response);
+  }
+};

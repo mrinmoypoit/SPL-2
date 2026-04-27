@@ -1,5 +1,7 @@
-import React from 'react'
+import React, { useContext } from 'react'
 import './ProductDetailsModal.css'
+import ProductFeedback from './ProductFeedback'
+import { AuthContext } from '../context/AuthContext'
 
 const formatKeyLabel = (value = '') =>
   String(value)
@@ -113,10 +115,14 @@ const renderStructuredDetails = (value, keyPrefix = '') => {
 }
 
 function ProductDetailsModal({ isOpen, product, onClose }) {
+  const { user } = useContext(AuthContext)
+  
   if (!isOpen || !product) return null
 
   const {
     id,
+    product_id,
+    productId: productIdFromDestructure,
     name,
     company,
     companyName,
@@ -131,6 +137,17 @@ function ProductDetailsModal({ isOpen, product, onClose }) {
     features,
     ...otherDetails
   } = product
+
+  // Use id, product_id, or productId - whichever is available
+  const productId = id || product_id || productIdFromDestructure
+  
+  console.log('🔍 ProductDetailsModal Debug:', {
+    id,
+    product_id,
+    productId,
+    userName: user?.name,
+    isLoggedIn: !!user
+  });
 
   const displayCompany = company || companyName || company_name || 'N/A'
   const displayCategory = category || subcategoryName || subcategory_name || 'Uncategorized'
@@ -229,6 +246,13 @@ function ProductDetailsModal({ isOpen, product, onClose }) {
               </div>
             </section>
           )}
+
+          {/* Feedback Section */}
+          <ProductFeedback 
+            productId={productId} 
+            isLoggedIn={!!user}
+            userName={user?.name || ''}
+          />
         </div>
 
         <div className="modal-footer">

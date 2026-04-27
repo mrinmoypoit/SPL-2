@@ -1880,6 +1880,164 @@ app.put('/api/notifications/read-all', authenticateToken, async (req, res) => {
     }
 });
 
+// ============ FEEDBACK ROUTES ============
+
+// Get all feedback for a product
+app.get('/api/feedback/:productId', async (req, res) => {
+    try {
+        const { productId } = req.params;
+
+        const query = `
+            SELECT 
+                f.feedback_id as id,
+                f.user_id as userId,
+                u.name as userName,
+                f.product_id as productId,
+                f.rating,
+                f.review_text as reviewText,
+                f.created_at as createdAt
+            FROM feedback f
+            LEFT JOIN users u ON f.user_id = u.user_id
+            WHERE f.product_id = $1
+            ORDER BY f.created_at DESC
+        `;
+
+        const result = await pool.query(query, [productId]);
+        
+        // Calculate average rating
+        const avgResult = await pool.query(
+            `SELECT AVG(rating) as avg_rating, COUNT(*) as total_reviews 
+             FROM feedback WHERE product_id = $1`,
+            [productId]
+        );
+
+        const avgRating = avgResult.rows[0]?.avg_rating ? parseFloat(avgResult.rows[0].avg_rating).toFixed(1) : null;
+        const totalReviews = parseInt(avgResult.rows[0]?.total_reviews || 0);
+
+        res.json({
+            feedback: result.rows,
+            stats: {
+                averageRating: avgRating,
+                totalReviews: totalReviews
+            }
+        });
+    } catch (error) {
+        console.error('Get feedback error:', error);
+        res.status(500).json({ error: 'Failed to fetch feedback', details: error.message });
+    }
+});
+
+// Submit feedback for a product (requires authentication)
+app.post('/api/feedback', authenticateToken, async (req, res) => {
+    try {
+        console.log('📝 Feedback submission attempt:', {
+            userId: req.user?.userId,
+            userEmail: req.user?.email,
+            body: req.body
+        });
+
+        const { productId, rating, reviewText } = req.body;
+
+        if (!productId || !rating) {
+            return res.status(400).json({ error: 'Product ID and rating are required' });
+        }
+
+        if (rating < 1 || rating > 5) {
+            return res.status(400).json({ error: 'Rating must be between 1 and 5' });
+        }
+
+        // Check if product exists
+        const productCheck = await pool.query(
+            'SELECT 1 FROM products WHERE product_id = $1',
+            [productId]
+        );
+
+        if (productCheck.rows.length === 0) {
+            console.warn(`⚠️ Product ${productId} not found in database`);
+            return res.status(404).json({ error: 'Product not found in database' });
+        }
+
+        // Check if user already has feedback for this product
+        const existingFeedback = await pool.query(
+            'SELECT feedback_id FROM feedback WHERE user_id = $1 AND product_id = $2',
+            [req.user.userId, productId]
+        );
+
+        let feedbackId;
+        let message;
+
+        if (existingFeedback.rows.length > 0) {
+            // Update existing feedback
+            feedbackId = existingFeedback.rows[0].feedback_id;
+            await pool.query(
+                `UPDATE feedback 
+                 SET rating = $1, review_text = $2, created_at = CURRENT_TIMESTAMP 
+                 WHERE feedback_id = $3 AND user_id = $4`,
+                [rating, reviewText || null, feedbackId, req.user.userId]
+            );
+            message = 'Feedback updated successfully';
+        } else {
+            // Insert new feedback
+            const result = await pool.query(
+                `INSERT INTO feedback (user_id, product_id, rating, review_text, created_at)
+                 VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                 RETURNING feedback_id`,
+                [req.user.userId, productId, rating, reviewText || null]
+            );
+            feedbackId = result.rows[0].feedback_id;
+            message = 'Feedback submitted successfully';
+        }
+
+        console.log(`✅ Feedback ${existingFeedback.rows.length > 0 ? 'updated' : 'submitted'} for product ${productId} by user ${req.user.userId}`);
+
+        res.status(201).json({
+            message,
+            feedback: {
+                id: feedbackId,
+                userId: req.user.userId,
+                productId: productId,
+                rating: rating,
+                reviewText: reviewText || null,
+                userName: req.user.name
+            }
+        });
+    } catch (error) {
+        console.error('❌ Submit feedback error:', error);
+        res.status(500).json({ error: 'Failed to submit feedback', details: error.message });
+    }
+});
+
+// Delete feedback (only own feedback)
+app.delete('/api/feedback/:feedbackId', authenticateToken, async (req, res) => {
+    try {
+        const { feedbackId } = req.params;
+
+        // Check if feedback exists and belongs to the user
+        const feedbackCheck = await pool.query(
+            'SELECT user_id FROM feedback WHERE feedback_id = $1',
+            [feedbackId]
+        );
+
+        if (feedbackCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Feedback not found' });
+        }
+
+        if (feedbackCheck.rows[0].user_id !== req.user.userId) {
+            return res.status(403).json({ error: 'You can only delete your own feedback' });
+        }
+
+        // Delete the feedback
+        await pool.query('DELETE FROM feedback WHERE feedback_id = $1', [feedbackId]);
+
+        console.log(`✅ Feedback ${feedbackId} deleted by user ${req.user.userId}`);
+
+        res.json({ message: 'Feedback deleted successfully' });
+    } catch (error) {
+        console.error('Delete feedback error:', error);
+        res.status(500).json({ error: 'Failed to delete feedback', details: error.message });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`TULONA API Server running on http://localhost:${PORT}`);
     console.log(`Database: PostgreSQL`);
